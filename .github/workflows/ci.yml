@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Build & test (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The app ships its own statically linked engines (packaging/build-engines.sh),
+      # but that build takes minutes. For CI the same engines from Homebrew are enough:
+      # in DEBUG builds EngineLocator also searches Homebrew paths.
+      - name: Install PDF engines
+        run: brew install qpdf pdfcpu
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test

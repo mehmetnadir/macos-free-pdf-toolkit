@@ -1,0 +1,10 @@
+.build/
+build/
+vendor/
+*.xcodeproj
+.DS_Store
+.build-engines.log
+.vscode/
+*.log
+.claude/
+project-switch.md
