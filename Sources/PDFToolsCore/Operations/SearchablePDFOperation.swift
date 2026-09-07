@@ -69,8 +69,9 @@ public struct SearchablePDFOperation: PDFOperation {
     try? fm.removeItem(at: partial)
 
     let samples: [(pageIndex: Int, sampleText: String)]
+    let sawTurkishDiacritic: Bool
     do {
-      samples = try Self.writeOutput(
+      (samples, sawTurkishDiacritic) = try Self.writeOutput(
         document: document, total: total, languages: languages, dpi: dpi, to: partial,
         progress: progress)
     } catch is CancellationError {
@@ -98,17 +99,36 @@ public struct SearchablePDFOperation: PDFOperation {
 
     try fm.moveItem(at: partial, to: output)
     progress(1)
-    return .produced(urls: [output], note: nil)
+
+    // İKİ BAĞIMSIZ sinyal — bkz. `OCRVerification` dosya üstü CI ölçümü (GitHub macos-15 runner,
+    // 2026-09-08): bu makinede Vision'ın tr-TR'ye sessizce düşmediğinden emin olunamıyorsa YA DA
+    // GERÇEK tanınan metinde hiç Türkçe aksanlı harf yoksa, eklenen metin GÖRÜNMEZ katmanda
+    // sessizce bozuk kalabilir — kullanıcı bunu göremez (metin zaten görünmez). `sawTurkishDiacritic`
+    // burada `OCRVerification.containsTurkishDiacritic`'in `writeOutput` döngüsünde satır satır
+    // OR'lanmış hâli — tüm sayfa metnini bellekte tutmadan AYNI ikinci sinyali verir.
+    let requestsTurkish = languageKey == "tr" || languageKey == "auto"
+    var note: String?
+    if requestsTurkish {
+      let missingFromSupportedList = !OCRVerification.allLanguagesSupported(
+        ["tr-TR"], level: .accurate)
+      if missingFromSupportedList || !sawTurkishDiacritic {
+        note = OCROperation.turkishSupportWarning
+      }
+    }
+    return .produced(urls: [output], note: note)
   }
 
   /// Kaynağın TÜM sayfalarını (kendi MediaBox'larıyla) yeni bir PDF'e kopyalar, her sayfada Vision
   /// ile metni tanır ve görünmez biçimde üstüne çizer. Her sayfa için ilk tanınan (boş olmayan)
   /// satırı `samples`'a ekler — `run()`'daki doğrulama gate'i bunu kullanır (görev tanımındaki
   /// "OCR'ın bulduğu belirgin bir kelimenin ORADA olduğunu doğrula" kanıtının girdisi).
+  /// `sawTurkishDiacritic`: TÜM sayfalardaki TÜM satırlarda en az bir Türkçe aksanlı harf (ş/ğ/İ/
+  /// ı/Ş/Ğ) görüldü mü — Türkçe dil desteği bozukluğunun ikinci sinyali (bkz. `run()`), metni
+  /// bellekte biriktirmeden tek bir bayrakla izlenir.
   private static func writeOutput(
     document: CGPDFDocument, total: Int, languages: [String], dpi: CGFloat, to url: URL,
     progress: @escaping @Sendable (Double) -> Void
-  ) throws -> [(pageIndex: Int, sampleText: String)] {
+  ) throws -> (samples: [(pageIndex: Int, sampleText: String)], sawTurkishDiacritic: Bool) {
     var dummyBox = CGRect(x: 0, y: 0, width: 1, height: 1)
     guard let consumer = CGDataConsumer(url: url as CFURL) else {
       throw SearchablePDFError.generationFailed
@@ -117,6 +137,7 @@ public struct SearchablePDFOperation: PDFOperation {
       throw SearchablePDFError.generationFailed
     }
     var samples: [(pageIndex: Int, sampleText: String)] = []
+    var sawTurkishDiacritic = false
     for pageIndex in 1...total {
       try Task.checkCancellation()
       guard let page = document.page(at: pageIndex) else { continue }
@@ -138,6 +159,9 @@ public struct SearchablePDFOperation: PDFOperation {
         let trimmed = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { continue }
         if firstNonEmpty == nil { firstNonEmpty = trimmed }
+        if !sawTurkishDiacritic, OCRVerification.containsTurkishDiacritic(trimmed) {
+          sawTurkishDiacritic = true
+        }
         drawInvisibleText(trimmed, boundingBox: line.boundingBox, inPageBox: box, into: ctx)
       }
       if let sample = firstNonEmpty { samples.append((pageIndex, sample)) }
@@ -146,7 +170,7 @@ public struct SearchablePDFOperation: PDFOperation {
       progress(Double(pageIndex) / Double(total))
     }
     ctx.closePDF()
-    return samples
+    return (samples, sawTurkishDiacritic)
   }
 
   /// Vision'ın normalize (orijin SOL-ALT, 0...1) satır kutusunu sayfa punto uzayına çevirip metni

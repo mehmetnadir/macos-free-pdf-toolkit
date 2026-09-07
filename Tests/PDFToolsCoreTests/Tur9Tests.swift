@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreText
 import PDFKit
+import Vision
 import XCTest
 
 @testable import PDFToolsCore
@@ -118,14 +119,38 @@ final class Tur9Tests: XCTestCase {
   /// noktasız I'ya çevirip karşılaştırır (bkz. `OCRVerification` dosya üstü yorumu — bu bilinen
   /// hata rastgele/kelimeye bağlı değil, ölçülmüş bir Vision davranışı; test verisini KIRILGAN
   /// yapmasın diye normalize ediliyor).
-  private func containsIgnoringTurkishICase(_ haystack: String, _ needle: String) -> Bool {
-    haystack.replacingOccurrences(of: "İ", with: "I")
-      .contains(needle.replacingOccurrences(of: "İ", with: "I"))
+  ///
+  /// CI ÖLÇÜMÜ (GitHub `macos-15` runner, 2026-09-08): bu testin İLK sürümü CI'da KIRMIZI verdi —
+  /// o runner'da Vision'ın `tr-TR` dil varlıkları kurulu değilmiş ve tanıma SESSİZCE aksansız/
+  /// İngilizce benzeri bir modele düşmüş (`İSTİKLAL MARŞI ÖRNEK ŞİİR` → `iSTiKLAL MARSI ÖRNEK
+  /// SiiR` — Ş/İ/ş/ğ kayboldu, kelimelerin kendisi DOĞRU okundu). Bu yüzden "OCR kelimeleri okudu
+  /// mu" sorusu artık TÜM Türkçe aksanları ASCII karşılığına indirgeyerek (`normalizedTurkishContains`)
+  /// sınanıyor — ortamdan BAĞIMSIZ ama sinyal kaybetmeden. Aksanların BİREBİR doğru okunduğu ayrı
+  /// bir testte (`testOCRTurkishDiacriticsAreCorrectWhenLanguageSupported`), yalnız `tr-TR`
+  /// GERÇEKTEN desteklendiğinde, sınanıyor.
+  private func normalizedTurkishContains(_ haystack: String, _ needle: String) -> Bool {
+    func normalize(_ s: String) -> String {
+      var result = s
+      let pairs: [(String, String)] = [
+        ("İ", "i"), ("I", "i"), ("ı", "i"), ("Ş", "s"), ("ş", "s"), ("Ğ", "g"), ("ğ", "g"),
+        ("Ü", "u"), ("ü", "u"), ("Ö", "o"), ("ö", "o"), ("Ç", "c"), ("ç", "c"),
+      ]
+      for (from, to) in pairs { result = result.replacingOccurrences(of: from, with: to) }
+      return result.lowercased()
+    }
+    return normalize(haystack).contains(normalize(needle))
   }
 
   // MARK: - 1. OCR: taranmış fixture'dan beklenen kelimeler (Türkçe karakterler dahil)
 
   func testOCRRecognizesTurkishTextFromScannedFixture() async throws {
+    // CI teşhisi: bu makinenin Vision'da hangi dilleri desteklediğini logla — "tr-TR yok" gibi bir
+    // ortam farkı bir sonraki kırmızıda saniyeler içinde teşhis edilsin (bkz. dosya üstü CI notu).
+    let supportedLanguages = (try? VNRecognizeTextRequest().supportedRecognitionLanguages()) ?? []
+    print(
+      "Tur9Tests: Vision desteklenen diller (\(supportedLanguages.count)): \(supportedLanguages)")
+    print("Tur9Tests: tr-TR destekleniyor mu: \(supportedLanguages.contains("tr-TR"))")
+
     let dir = try makeTempDirectory()
     let source = dir.appendingPathComponent("taranmis-tr.pdf")
     Self.makeScannedTurkishFixture(to: source)
@@ -141,20 +166,82 @@ final class Tur9Tests: XCTestCase {
     let text = try String(contentsOf: output, encoding: .utf8)
     // Kanıt 1: sayfa ayracı var.
     XCTAssertTrue(text.contains("--- sayfa 1 ---"), "sayfa ayracı yok: \(text)")
-    // Kanıt 2: bilinen İ/I hatasından ETKİLENMEYEN kelimeler birebir okunmuş.
-    XCTAssertTrue(text.contains("MARŞI"), "MARŞI okunamadı: \(text)")
-    XCTAssertTrue(text.contains("ÖRNEK"), "ÖRNEK okunamadı: \(text)")
-    XCTAssertTrue(text.contains("düşünce"), "düşünce okunamadı: \(text)")
-    XCTAssertTrue(text.contains("güç"), "güç okunamadı: \(text)")
-    // Kanıt 3: İ/I hatasına toleranslı biçimde İSTİKLAL de tanınmış olmalı.
+    // Kanıt 2: kelimelerin KENDİSİ doğru okunmuş — aksan farkına karşı normalize edilerek (bkz.
+    // dosya üstü CI notu: aksanlar bir ortamda düşse bile kelimenin kendisi doğru okunuyor).
+    XCTAssertTrue(normalizedTurkishContains(text, "MARŞI"), "MARŞI okunamadı: \(text)")
+    XCTAssertTrue(normalizedTurkishContains(text, "ÖRNEK"), "ÖRNEK okunamadı: \(text)")
+    XCTAssertTrue(normalizedTurkishContains(text, "düşünce"), "düşünce okunamadı: \(text)")
+    XCTAssertTrue(normalizedTurkishContains(text, "güç"), "güç okunamadı: \(text)")
     XCTAssertTrue(
-      containsIgnoringTurkishICase(text, "İSTİKLAL"),
-      "İSTİKLAL (İ/I toleranslı) okunamadı: \(text)")
-    // Kanıt 4: not, sayfa/satır/güven bilgisi ve Türkçe İ/I uyarısını içeriyor.
+      normalizedTurkishContains(text, "İSTİKLAL"), "İSTİKLAL okunamadı: \(text)")
+    // Kanıt 3: not, sayfa/satır/güven bilgisi ve Türkçe İ/I uyarısını içeriyor.
     guard let note else { return XCTFail("not boş") }
     XCTAssertTrue(note.contains("1 sayfa"), "not sayfa sayısını içermiyor: \(note)")
     XCTAssertTrue(note.localizedCaseInsensitiveContains("güven"), "not güven bilgisi içermiyor: \(note)")
     XCTAssertTrue(note.contains("İ"), "Türkçe İ/I uyarısı yok: \(note)")
+    // Kanıt 4 (tutarlılık): üretim kodunun KENDİ bozukluk teşhisi ile notta gösterilen uyarı
+    // birbirini tutmalı — CI'da tr-TR yokken bu testin sessizce yanlış geçmesini önleyen asıl
+    // gate: teşhis "bozuk" diyorsa uyarı ORADA olmalı, "sağlıklı" diyorsa GEREKSİZ yere olmamalı.
+    let degraded = OCRVerification.turkishSupportDegraded(level: .accurate, recognizedText: text)
+    if degraded {
+      XCTAssertTrue(
+        note.contains(OCROperation.turkishSupportWarning),
+        "Türkçe desteği bozuk teşhis edildi ama notta uyarı YOK: \(note)")
+    } else {
+      XCTAssertFalse(
+        note.contains(OCROperation.turkishSupportWarning),
+        "Türkçe desteği sağlıklı teşhis edildi ama uyarı GEREKSİZ yere notta: \(note)")
+    }
+  }
+
+  // MARK: - 1b. OCR: aksanların BİREBİR doğru okunduğu (yalnız tr-TR destekleniyorsa)
+
+  /// `testOCRRecognizesTurkishTextFromScannedFixture` normalize ederek "kelime doğru mu" sorusunu
+  /// her ortamda sınıyor — bu test AYRICA "aksanlar BİREBİR doğru mu" sorusunu, yalnızca bu
+  /// makinede Vision'ın `tr-TR` dil varlıkları GERÇEKTEN kuruluyken sınar. Kurulu değilse (bkz.
+  /// dosya üstü CI notu — `macos-15` runner'da tam bu durum ölçüldü) `XCTSkip` ile atlanır: aksan
+  /// doğruluğu yalnızca dil GERÇEKTEN destekleniyorken anlamlı bir iddia.
+  func testOCRTurkishDiacriticsAreCorrectWhenLanguageSupported() async throws {
+    let supportedLanguages = (try? VNRecognizeTextRequest().supportedRecognitionLanguages()) ?? []
+    print(
+      "Tur9Tests (aksan testi): Vision desteklenen diller (\(supportedLanguages.count)): "
+        + "\(supportedLanguages)")
+    guard supportedLanguages.contains("tr-TR") else {
+      throw XCTSkip(
+        "Bu makinede Vision tr-TR dil desteği yok (desteklenenler: \(supportedLanguages)) — "
+          + "aksan doğruluğu yalnızca tr-TR GERÇEKTEN destekleniyorken sınanabilir.")
+    }
+
+    let dir = try makeTempDirectory()
+    let source = dir.appendingPathComponent("taranmis-tr-aksan.pdf")
+    Self.makeScannedTurkishFixture(to: source)
+    let outcome = try await OCROperation().run(
+      file: PDFFileInfo.inspect(source), context: OperationContext(outputDirectory: dir)) { _ in }
+    guard case .produced(let outputs, let note) = outcome, let output = outputs.first else {
+      return XCTFail("çıktı üretilmedi: \(outcome)")
+    }
+    let text = try String(contentsOf: output, encoding: .utf8)
+
+    // tr-TR GERÇEKTEN destekleniyorken aksanlar BİREBİR (normalize ETMEDEN) doğru okunmalı. İ/I
+    // hatası (bkz. `OCRVerification` dosya üstü yorumu) dil desteğinden BAĞIMSIZ, AYRI ölçülmüş
+    // bir kusur — bu yüzden yalnız İSTİKLAL'de İ/I toleranslı, diğer aksanlarda (Ş/ğ/ü/ç/ı) KESİN.
+    XCTAssertTrue(text.contains("MARŞI"), "Ş aksanı kayboldu: \(text)")
+    XCTAssertTrue(text.contains("ÖRNEK"), "Ö aksanı kayboldu: \(text)")
+    XCTAssertTrue(text.contains("öğüt"), "ğ/ü aksanı kayboldu: \(text)")
+    XCTAssertTrue(text.contains("düşünce"), "ş/ü aksanı kayboldu: \(text)")
+    XCTAssertTrue(text.contains("çiçek"), "ç aksanı kayboldu: \(text)")
+    XCTAssertTrue(text.contains("ığdır"), "ı/ğ aksanı kayboldu: \(text)")
+    XCTAssertTrue(text.contains("güç"), "ü/ç aksanı kayboldu: \(text)")
+    let istiklalTolerant = text.replacingOccurrences(of: "İ", with: "I").contains("ISTIKLAL")
+    XCTAssertTrue(istiklalTolerant, "İSTİKLAL (İ/I toleranslı) okunamadı: \(text)")
+
+    // tr-TR GERÇEKTEN destekleniyor ve aksanlar doğru okunduğu için "dil desteği yok" uyarısı
+    // BURADA görünmemeli.
+    if let note {
+      XCTAssertFalse(
+        note.contains(OCROperation.turkishSupportWarning),
+        "tr-TR desteklenirken 'dil desteği yok' uyarısı YANLIŞLIKLA tetiklendi: \(note)")
+    }
   }
 
   // MARK: - 2. OCR: metin katmanı olan dosyada uyarı
@@ -200,12 +287,17 @@ final class Tur9Tests: XCTestCase {
     XCTAssertEqual(output.lastPathComponent, "taranmis_aranabilir.pdf")
 
     // Asıl kanıt: PDFKit ile açılan çıktının 1. sayfasında OCR'ın bulduğu belirgin bir kelime
-    // GERÇEKTEN var (`page.string` ile — annotation/metadata değil, gerçek metin içeriği).
+    // GERÇEKTEN var (`page.string` ile — annotation/metadata değil, gerçek metin içeriği). Aksana
+    // karşı normalize edilerek karşılaştırılıyor — `testOCRRecognizesTurkishTextFromScannedFixture`
+    // dosya üstü CI notundaki AYNI kök neden (bir makinede tr-TR yoksa aksanlar düşebilir) burada
+    // da geçerli; sinyal kaybetmeden ortama dayanıklı hale getirildi.
+    guard let outputDoc = PDFDocument(url: output), let outputPage = outputDoc.page(at: 0),
+      let extractedText = outputPage.string
+    else { return XCTFail("çıktı PDFKit ile açılamadı") }
     XCTAssertTrue(
-      OCRVerification.searchablePageContains(pdfAt: output, pageIndex: 1, expectedSubstring: "MARŞI")
-        || OCRVerification.searchablePageContains(
-          pdfAt: output, pageIndex: 1, expectedSubstring: "ÖRNEK"),
-      "çıktıda ne MARŞI ne ÖRNEK PDFKit ile bulunabildi")
+      normalizedTurkishContains(extractedText, "MARŞI")
+        || normalizedTurkishContains(extractedText, "ÖRNEK"),
+      "çıktıda ne MARŞI ne ÖRNEK PDFKit ile bulunabildi: \(extractedText)")
   }
 
   // MARK: - 5. Aranabilir PDF: çıktı GÖRSEL olarak kaynakla aynı

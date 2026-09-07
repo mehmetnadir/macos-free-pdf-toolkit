@@ -37,6 +37,11 @@ public struct OCROperation: PDFOperation {
     ("150", "150 dpi"), ("200", "200 dpi"), ("300", "300 dpi"),
   ]
 
+  /// `OCRVerification.turkishSupportDegraded` true dönerse gösterilen uyarı — `OCROperation` ve
+  /// `SearchablePDFOperation`'IN PAYLAŞTIĞI TEK metin (bkz. dosya üstü CI ölçümü, 2026-09-08).
+  public static let turkishSupportWarning =
+    "Bu Mac'te Türkçe dil desteği bulunamadı; metin İngilizce modelle okundu, Türkçe karakterler bozulmuş olabilir."
+
   public init() {}
 
   public var options: [OperationOption] {
@@ -126,7 +131,14 @@ public struct OCROperation: PDFOperation {
       "\(total) sayfa, \(confidences.count) satır, ortalama güven "
         + String(format: "%.2f", avgConfidence)
     ]
-    if languageKey == "tr" || languageKey == "auto" {
+    let requestsTurkish = languageKey == "tr" || languageKey == "auto"
+    if requestsTurkish {
+      // İKİ BAĞIMSIZ sinyal — bkz. `OCRVerification.turkishSupportDegraded` dosya üstü CI ölçümü:
+      // bu makinede Vision'ın tr-TR'ye sessizce düşmediğinden emin olunamıyorsa, ya da GERÇEK
+      // çıktıda hiç Türkçe aksanlı harf yoksa, kesin bir "OCR yaptım" dili YERİNE açık uyarı verilir.
+      if OCRVerification.turkishSupportDegraded(level: level, recognizedText: combined) {
+        noteParts.append(Self.turkishSupportWarning)
+      }
       noteParts.append(
         "Türkçe metinde büyük İ harfi bazen I olarak okunabilir — kritik metinlerde gözden geçirin.")
     }

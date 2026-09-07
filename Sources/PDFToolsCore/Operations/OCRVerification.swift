@@ -17,6 +17,26 @@ import Vision
 /// `note`'unda bu uyarı KULLANICIYA gösterilir (bkz. `OCROperation.run`); "OCR yaptım, metin hazır"
 /// gibi kesin bir dil KULLANILMAZ. Testlerde İ/I karşılaştırması normalize edilerek yapılır (bkz.
 /// `Tur9Tests.containsIgnoringTurkishICase`).
+///
+/// DAHA CİDDİ BİR ÖLÇÜM (CI, GitHub `macos-15` runner, 2026-09-08): `testOCRRecognizesTurkishText-
+/// FromScannedFixture` CI'da KIRMIZI verdi. CI logundaki gerçek OCR çıktısı:
+/// ```
+/// iSTiKLAL MARSI ÖRNEK SiiR
+/// ögüt ve düsünce üzerine
+/// giçek igdir güç bulur
+/// ```
+/// Beklenen `İSTİKLAL MARŞI ÖRNEK ŞİİR / öğüt ve düşünce üzerine / çiçek ığdır güç bulur` ile
+/// karşılaştırıldığında: Ş→S, İ→i (noktasız küçük i, büyük İ DEĞİL), ğ→g, ş→s düşmüş — kelimeler
+/// DOĞRU okunmuş (yerelde geçen testle AYNI kelimeler), yalnız TÜM Türkçe aksanlar kaybolmuş. Bu,
+/// o runner'da Vision'ın `tr-TR` dil varlıklarının (language assets) kurulu OLMADIĞINA ve isteğin
+/// SESSİZCE aksansız/İngilizce benzeri bir modele düştüğüne işaret ediyor — QR'ın 100 dpi'da
+/// sessizce 0 sonuç vermesiyle AYNI SINIF hata: sonuç üretiliyor ama yanlış, kullanıcı bunu
+/// OCR çıktısına bakarak ayırt edemiyor. Bu yüzden `turkishSupportDegraded` İKİ BAĞIMSIZ sinyal
+/// kullanır — yalnızca "dil listede var mı" sorusu YETMEZ, çünkü listede görünüp yine de aksansız
+/// okunabildiği (ya da tersi) ölçülmedi ama teorik olarak mümkün; ikinci sinyal (çıktıda hiç Türkçe
+/// aksanlı harf yok) bunu bağımsız olarak yakalar. `OCROperation`/`SearchablePDFOperation` bu
+/// sinyallerden biri true dönerse `note`'a AÇIK bir uyarı ekler (bkz. `OCROperation.
+/// turkishSupportWarning`).
 public enum OCRVerification {
   /// Bir satır güveninin "kayda değer" sayılacağı alt sınır — yalnızca "en az bir satır makul
   /// güvenle okundu mu" kanıtı için (`OCROperation`'ın not satırındaki ortalama güvenden BAĞIMSIZ).
@@ -67,6 +87,56 @@ public enum OCRVerification {
         text: candidate.string, confidence: candidate.confidence,
         boundingBox: observation.boundingBox)
     }
+  }
+
+  /// `languages`'taki HER dilin, verilen `level`'da (Vision revizyonuna göre değişebilir) GERÇEKTEN
+  /// desteklenip desteklenmediğine bakar (`VNRecognizeTextRequest.supportedRecognitionLanguages()`
+  /// ile — bkz. dosya üstü CI ölçümü). Sorgu başarısız olursa (`try?` `nil` dönerse) TEMKİNLİ
+  /// davranıp `false` döner — "belirsizse uyar" ilkesi, sessizce "destekleniyor" varsayılmaz.
+  public static func allLanguagesSupported(
+    _ languages: [String], level: VNRequestTextRecognitionLevel
+  ) -> Bool {
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = level
+    guard let supported = try? request.supportedRecognitionLanguages() else { return false }
+    let supportedSet = Set(supported)
+    return languages.allSatisfy { lang in
+      supportedSet.contains(lang) || supported.contains(where: { $0.hasPrefix(lang.prefix(2))
+      })
+    }
+  }
+
+  /// Türkçe aksanlı harfler: İKİNCİ sinyal, `allLanguagesSupported`'ın YAKALAYAMAYACAĞI durumu
+  /// kapatır (dil listede görünüp yine de aksansız okunabiliyorsa). Yalnızca büyük/küçük Ş/ş, Ğ/ğ
+  /// ve İ/ı — görev tanımındaki KESİN küme; ü/ö/ç kasıtlı olarak DIŞARIDA (bu harfler bazı
+  /// yazı tiplerinde/ASCII-yakın kodlamalarda başka nedenlerle de düşebilir, oysa Ş/Ğ/İ/ı kaybı
+  /// spesifik olarak "aksansız modele düşme" belirtisi — CI ölçümünde tam bu dört harf kayboldu).
+  private static let turkishDiacritics = Set("şğİıŞĞ")
+
+  /// Bir metin parçasının en az bir Türkçe aksanlı harf (ş/ğ/İ/ı/Ş/Ğ) içerip içermediğine bakar —
+  /// ikinci sinyalin YAPI TAŞI. Büyük metinleri belleğe TOPLAMADAN da kullanılabilir:
+  /// `SearchablePDFOperation` bunu her satır için ayrı ayrı çağırıp sonucu OR'layarak tek bir
+  /// bayrakta biriktirir (bkz. o dosyadaki `writeOutput`), tüm sayfaların metnini bellekte tutmaz.
+  public static func containsTurkishDiacritic(_ text: String) -> Bool {
+    text.contains(where: turkishDiacritics.contains)
+  }
+
+  /// Türkçe (`tr` ya da `auto`) istenmişken Vision'ın SESSİZCE aksansız/İngilizce benzeri bir
+  /// modele düştüğünü İKİ BAĞIMSIZ sinyalle tespit eder (bkz. dosya üstü CI ölçümü, 2026-09-08):
+  /// (1) `tr-TR`, bu Vision sürümü/seviyesinde desteklenen diller listesinde YOK, YA DA (2) listede
+  /// görünmesine rağmen GERÇEK tanınan metinde tek bir Türkçe aksanlı harf (ş/ğ/İ/ı/Ş/Ğ) bile yok.
+  /// İkisi birbirini yakalar — yalnızca birine güvenmek CI'da ölçülen durumu (dil listede olması
+  /// GEREKEN ama fiilen aksansız okuyan bir runner) KAÇIRABİLİRDİ. `recognizedText` boşsa (hiç
+  /// satır tanınmadıysa) bu fonksiyon çağrılmamalı — çağıran taraf zaten `.skipped` dönüyor olur.
+  /// (`SearchablePDFOperation`, tüm metni bellekte biriktirmediği için bu iki sinyali `containsTurkish
+  /// Diacritic`/`allLanguagesSupported` ile AYRI AYRI, kendi `writeOutput` döngüsünde birleştirir —
+  /// mantık BURADAKİYLE aynı, yalnızca girdi biçimi farklı.)
+  public static func turkishSupportDegraded(
+    level: VNRequestTextRecognitionLevel, recognizedText: String
+  ) -> Bool {
+    let missingFromSupportedList = !allLanguagesSupported(["tr-TR"], level: level)
+    let noDiacriticsInOutput = !containsTurkishDiacritic(recognizedText)
+    return missingFromSupportedList || noDiacriticsInOutput
   }
 
   /// PDFKit ile bir dosyada zaten (herhangi bir sayfada boş olmayan `page.string`) metin katmanı
