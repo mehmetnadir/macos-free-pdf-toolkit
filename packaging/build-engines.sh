@@ -89,11 +89,17 @@ echo "=== lisanslar ==="
 # Apache-2.0 ve IJG/BSD yükümlülüğü: dağıtılan ikililerin lisans metinleri pakete girer.
 LIC="$ROOT/vendor/licenses"
 mkdir -p "$LIC"
-cp "$WORK/qpdf-$QPDF_VER/LICENSE.txt" "$LIC/qpdf-LICENSE.txt"
-cp "$WORK/qpdf-$QPDF_VER/NOTICE.md" "$LIC/qpdf-NOTICE.md"
-cp "$WORK/libjpeg-turbo-$JPEG_VER/LICENSE.md" "$LIC/libjpeg-turbo-LICENSE.md"
-PDFCPU_LIC="$(find "$(go env GOMODCACHE)/github.com/pdfcpu" -maxdepth 2 -iname 'LICENSE*' 2>/dev/null | sort | tail -1)"
-[ -n "$PDFCPU_LIC" ] && cp "$PDFCPU_LIC" "$LIC/pdfcpu-LICENSE.txt"
-ls "$LIC"
+# install kullanılır, cp değil: Go modül önbelleğindeki dosyalar 0444'tür ve düz cp
+# ikinci çalıştırmada "Permission denied" ile SESSİZCE düşer (ölçüldü, 2026-09-07).
+install -m 644 "$WORK/qpdf-$QPDF_VER/LICENSE.txt" "$LIC/qpdf-LICENSE.txt"
+install -m 644 "$WORK/qpdf-$QPDF_VER/NOTICE.md" "$LIC/qpdf-NOTICE.md"
+install -m 644 "$WORK/libjpeg-turbo-$JPEG_VER/LICENSE.md" "$LIC/libjpeg-turbo-LICENSE.md"
+PDFCPU_LIC="$(find "$(go env GOMODCACHE)/github.com/pdfcpu" -maxdepth 2 -iname 'LICENSE*' | sort | tail -1)"
+if [ -z "$PDFCPU_LIC" ]; then
+  echo "HATA: pdfcpu lisansı bulunamadı — Apache-2.0 dağıtım yükümlülüğü karşılanamaz" >&2
+  exit 1
+fi
+install -m 644 "$PDFCPU_LIC" "$LIC/pdfcpu-LICENSE.txt"
+ls -l "$LIC"
 
 echo "=== bitti: $(ls -la "$OUT")"
