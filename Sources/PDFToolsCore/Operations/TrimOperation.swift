@@ -72,6 +72,6 @@ public struct TrimOperation: PDFOperation {
     if !PDFFileInfo.trimBoxIsConsistent(output) {
       notes.append("sayfalar arası kesim payı tutarsız")
     }
-    return .produced(output, note: notes.isEmpty ? nil : notes.joined(separator: " · "))
+    return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
   }
 }

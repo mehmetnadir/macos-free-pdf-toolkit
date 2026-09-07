@@ -12,6 +12,9 @@
 
 - **Kilit Aç** — şifreli PDF'lerin sahip/kullanıcı parolasını ve kısıtlamalarını, tamamen cihaz üzerinde kaldırır.
 - **Kesim Payını At** — matbaa kesim/taşma payını (TrimBox) kalıcı olarak siler, tamamen cihaz üzerinde. Ayrıca kurulu Ghostscript gerektirir (`brew install ghostscript`) — pakete neden gömülmediği için [Motor Karşılaştırması](#motor-karşılaştırması) bölümüne bak.
+- **Birleştir** — listedeki tüm dosyaları, sürüklediğin sırayla, tek PDF'te birleştirir.
+- **Parçala** — bir PDF'i parçalara böler: her sayfa ayrı dosya, sabit boyutlu parçalar (2/5/10/20/50 sayfa) ya da ortadan ikiye bölme.
+- **PDF → görüntü** — her sayfayı PNG, JPEG ya da HEIC olarak, 72–600 dpi arası, tamamen cihaz üzerinde dışa aktarır (yerleşik CoreGraphics/ImageIO, alt süreç yok). HEIC yalnızca sistemin gerçekten yazabildiği durumlarda sunulur — varsayılmaz, çalışma anında kontrol edilir.
 
 Proje erken aşamada ve henüz yapılmamış olanı saklamıyor — sırada ne olduğu için [Yol Haritası](#yol-haritası)'na bak.
 
@@ -29,6 +32,9 @@ Proje erken aşamada ve henüz yapılmamış olanı saklamıyor — sırada ne o
 swift run pdftools engines
 swift run pdftools unlock [--password ŞİFRE] [--out KLASÖR] dosya.pdf...
 swift run pdftools trim [--out KLASÖR] dosya.pdf...
+swift run pdftools merge [--out KLASÖR] dosya.pdf...
+swift run pdftools split [--mode her|n:10|ikiye] [--out KLASÖR] dosya.pdf...
+swift run pdftools image [--format png|jpeg|heic] [--dpi 150] [--out KLASÖR] dosya.pdf...
 ```
 
 ## Motor Karşılaştırması
@@ -49,7 +55,7 @@ qpdf ve pdfcpu, `packaging/build-engines.sh` ile universal (arm64+x86_64) statik
 
 ## Yol Haritası
 
-- **v0.2** — Birleştir, Parçala, sayfa sırala/döndür/sil, Filigran kaldır, PDF → görüntü (PNG/JPEG/HEIC/WebP)
+- **v0.2** — Birleştir ✅, Parçala ✅, PDF → görüntü ✅, sayfa sırala/döndür/sil, Filigran kaldır
 - **v0.3** — Sıkıştır, filigran/sayfa numarası ekle, Şifrele, QR ekle/ayıkla
 - **v0.4** — Lineerleştir, onar/doğrula, görsel çıkar, yer imi düzenle, metin/metadata çıkar
 - **v1.0** — Derin OCR (düzen ve formül farkında, OmniDocBench ile ölçülecek)
@@ -61,7 +67,7 @@ Gereksinimler: macOS 14+, Xcode 26 / Swift 6.3. Motor derlemesi için ek olarak 
 ```bash
 ./packaging/build-engines.sh   # qpdf + pdfcpu'yu vendor/bin/'e derler (internet gerekir, tekrarlanabilir)
 swift build                    # universal derleme: swift build --arch arm64 --arch x86_64
-swift test                     # 16 test, Tests/PDFToolsCoreTests/ (gs kurulu değilse kesim testleri atlanır)
+swift test                     # 28 test, Tests/PDFToolsCoreTests/ (gs kurulu değilse kesim testleri atlanır)
 ./packaging/build.sh           # build/PDF Araçları.app üretir (Developer ID imza için SIGN_IDENTITY env)
 ```
 

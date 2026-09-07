@@ -12,6 +12,9 @@ A free, local, native macOS PDF toolbox — no upload, no subscription.
 
 - **Unlock** — remove owner/user passwords and restrictions from encrypted PDFs, entirely on-device.
 - **Trim bleed** — permanently discard the printer's bleed/trim margin (TrimBox), on-device. Requires Ghostscript installed separately (`brew install ghostscript`) — see [Engine Benchmark](#engine-benchmark) for why it isn't bundled.
+- **Merge** — combine every file in your list into one PDF, in the order you dropped them.
+- **Split** — break a PDF into parts: one file per page, fixed-size chunks (2/5/10/20/50 pages), or an even split in two.
+- **PDF → image** — export every page as PNG, JPEG, or HEIC, at 72–600 dpi, entirely on-device (built-in CoreGraphics/ImageIO, no subprocess). HEIC is offered only where the system can actually write it — checked at runtime, not assumed.
 
 This project is early and honest about what's not built yet — see [Roadmap](#roadmap) for what's next.
 
@@ -29,6 +32,9 @@ Open **PDF Tools.app**, drag PDF files (or a folder) onto the window, pick an op
 swift run pdftools engines
 swift run pdftools unlock [--password PASSWORD] [--out DIR] file.pdf...
 swift run pdftools trim [--out DIR] file.pdf...
+swift run pdftools merge [--out DIR] file.pdf...
+swift run pdftools split [--mode her|n:10|ikiye] [--out DIR] file.pdf...
+swift run pdftools image [--format png|jpeg|heic] [--dpi 150] [--out DIR] file.pdf...
 ```
 
 ## Engine Benchmark
@@ -49,7 +55,7 @@ qpdf and pdfcpu are compiled as universal (arm64+x86_64) static binaries by `pac
 
 ## Roadmap
 
-- **v0.2** — Merge, Split, reorder/rotate/delete pages, Remove watermark, PDF → image (PNG/JPEG/HEIC/WebP)
+- **v0.2** — Merge ✅, Split ✅, PDF → image ✅, reorder/rotate/delete pages, Remove watermark
 - **v0.3** — Compress, add watermark/page numbers, Encrypt, add/extract QR codes
 - **v0.4** — Linearize, repair/validate, extract images, edit bookmarks, extract text/metadata
 - **v1.0** — Deep OCR (layout- and formula-aware, benchmarked against OmniDocBench)
@@ -61,7 +67,7 @@ Requirements: macOS 14+, Xcode 26 / Swift 6.3. Building the engines additionally
 ```bash
 ./packaging/build-engines.sh   # builds qpdf + pdfcpu into vendor/bin/ (needs internet, repeatable)
 swift build                    # universal build: swift build --arch arm64 --arch x86_64
-swift test                     # 16 tests, Tests/PDFToolsCoreTests/ (trim tests skip if gs isn't installed)
+swift test                     # 28 tests, Tests/PDFToolsCoreTests/ (trim tests skip if gs isn't installed)
 ./packaging/build.sh           # produces build/PDF Tools.app (set SIGN_IDENTITY for a Developer ID signature)
 ```
 

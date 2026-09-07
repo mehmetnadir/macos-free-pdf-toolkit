@@ -156,7 +156,7 @@ final class TrimTests: XCTestCase {
 
     let outcome = try await TrimOperation().run(
       file: info, context: OperationContext(outputDirectory: dir)) { _ in }
-    guard case .produced(let output, _) = outcome else {
+    guard case .produced(let outputs, _) = outcome, let output = outputs.first else {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
     XCTAssertEqual(output.lastPathComponent, "clean-source_kesilmis.pdf")

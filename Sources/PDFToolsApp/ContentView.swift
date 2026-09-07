@@ -96,8 +96,10 @@ struct FileListView: View {
         FileRowView(item: item)
           .contextMenu {
             Button("Finder'da Göster") { model.reveal(item.info.url) }
-            if case .done(let url, _) = item.status {
-              Button("Çıktıyı Finder'da Göster") { model.reveal(url) }
+            if case .done(let urls, _) = item.status, let first = urls.first {
+              Button(urls.count > 1 ? "Çıktıları Finder'da Göster" : "Çıktıyı Finder'da Göster") {
+                model.reveal(first)
+              }
             }
             Divider()
             Button("Listeden Kaldır", role: .destructive) { model.remove(item.id) }
@@ -203,16 +205,19 @@ struct StatusView: View {
           ProgressView().controlSize(.small)
         }
       }
-    case .done(let url, let note):
+    case .done(let urls, let note):
       HStack(spacing: 6) {
         Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         if let note {
           Text(note).font(.caption).foregroundStyle(.secondary)
         }
-        Button("Göster") { reveal(url) }
-          .buttonStyle(.link)
-          .font(.caption)
-          .help(url.lastPathComponent)
+        // Tek çıktı → "Göster"; birden çok → "N dosya · Göster" (Finder'da ilk dosya seçilir).
+        Button(urls.count > 1 ? "\(urls.count) dosya · Göster" : "Göster") {
+          if let first = urls.first { reveal(first) }
+        }
+        .buttonStyle(.link)
+        .font(.caption)
+        .help(urls.first?.lastPathComponent ?? "")
       }
     case .skipped(let reason):
       HStack(spacing: 6) {
@@ -251,6 +256,19 @@ struct ActionBar: View {
           .textFieldStyle(.roundedBorder)
           .frame(width: 150)
           .disabled(model.isRunning)
+      }
+
+      // İşlem seçenekleri (Parçala kipi, Görüntü biçimi/çözünürlüğü) — genel bir form motoru
+      // yerine küçük Picker'lar; seçenek yoksa hiçbir şey görünmez.
+      ForEach(model.operation.options) { option in
+        Picker(option.label, selection: model.optionBinding(for: option)) {
+          ForEach(option.choices, id: \.value) { choice in
+            Text(choice.label).tag(choice.value)
+          }
+        }
+        .controlSize(.small)
+        .fixedSize()
+        .disabled(model.isRunning)
       }
 
       Spacer()

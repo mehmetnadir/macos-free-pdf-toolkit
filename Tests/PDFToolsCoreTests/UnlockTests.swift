@@ -87,7 +87,7 @@ final class UnlockTests: XCTestCase {
       let context = OperationContext(outputDirectory: dir, engines: [engine])
       let outcome = try await UnlockOperation().run(
         file: PDFFileInfo.inspect(fixture("owner-only")), context: context) { _ in }
-      guard case .produced(let output, _) = outcome else {
+      guard case .produced(let outputs, _) = outcome, let output = outputs.first else {
         return XCTFail("\(engine.name): çıktı üretilmedi")
       }
       XCTAssertEqual(output.lastPathComponent, "owner-only_unlocked.pdf")
@@ -101,7 +101,7 @@ final class UnlockTests: XCTestCase {
       let context = OperationContext(password: "1234", outputDirectory: dir, engines: [engine])
       let outcome = try await UnlockOperation().run(
         file: PDFFileInfo.inspect(fixture("user-locked")), context: context) { _ in }
-      guard case .produced(let output, _) = outcome else {
+      guard case .produced(let outputs, _) = outcome, let output = outputs.first else {
         return XCTFail("\(engine.name): çıktı üretilmedi")
       }
       assertUnencrypted(output)
