@@ -34,6 +34,17 @@ public enum OperationArity: Sendable {
   case combined
 }
 
+/// Bir işlemin verilen dosya listesine uygulanıp uygulanamayacağı (bkz. eylem kartları,
+/// `.claude/CLAUDE.md`). Arayüz bunu hem kartın soluk/etkin durumunu hem de "Çalıştır" düğmesinin
+/// etkinliğini belirlemek için kullanır.
+public enum OperationApplicability: Sendable, Equatable {
+  /// `fileCount`: bu işlemin GERÇEKTEN etkileyeceği dosya sayısı (ör. Kilit Aç'ta kilitli dosya
+  /// sayısı, listedeki TÜM dosya sayısı değil).
+  case applicable(fileCount: Int)
+  /// `reason`: Türkçe, tek cümle, kullanıcıya doğrudan gösterilir (kart alt metni + `.help()`).
+  case notApplicable(reason: String)
+}
+
 /// Bir işlemin kullanıcıya sunacağı basit "seçim" ayarı (ör. Parçala kipi, Görüntü biçimi).
 /// Bilinçli olarak minimal: yalnız seçim listesi — genel bir form motoru İCAT EDİLMEDİ.
 public struct OperationOption: Sendable, Identifiable {
@@ -109,6 +120,11 @@ public protocol PDFOperation: Sendable {
   /// Kullanıcıya sunulacak seçimler (ör. kip, biçim, çözünürlük). Varsayılan boş.
   var options: [OperationOption] { get }
 
+  /// Bu işlem verilen dosya listesine uygulanabilir mi (bkz. `OperationApplicability`). Varsayılan
+  /// (protokol uzantısı): dosya varsa `.applicable(files.count)`, yoksa "Önce PDF ekleyin". Her
+  /// işlem kendi kuralına göre EZER (ör. Kilit Aç yalnız kilitli dosyaları sayar).
+  func applicability(for files: [PDFFileInfo]) -> OperationApplicability
+
   /// `.perFile` işlemler için giriş noktası: her dosya ayrı ayrı çağrılır.
   func run(
     file: PDFFileInfo, context: OperationContext,
@@ -125,6 +141,10 @@ public protocol PDFOperation: Sendable {
 extension PDFOperation {
   public var arity: OperationArity { .perFile }
   public var options: [OperationOption] { [] }
+
+  public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
+    files.isEmpty ? .notApplicable(reason: "Önce PDF ekleyin") : .applicable(fileCount: files.count)
+  }
 
   /// `.combined` işlemler bu varsayılanı miras alır (kendi `run`'ını yazmaz) — `arity` doğru
   /// ayarlandığı sürece çağıran (`AppModel`, CLI) bu yola hiç girmez.
@@ -154,5 +174,23 @@ public enum OperationRegistry {
 
   public static func operation(withID id: String) -> (any PDFOperation)? {
     all.first { $0.id == id }
+  }
+
+  /// Dosya listesine göre öne çıkan (varsayılan seçili) işlem. Saf/yan etkisiz — motor kurulu mu
+  /// gibi ortam kontrolü YAPMAZ (bkz. testler); yalnız dosya metaverisine bakar. Sıra: kilitli
+  /// dosya var mı → Kilit Aç, kesim payı var mı → Kesim Payını At, 2+ dosya mı → Birleştir,
+  /// aksi halde → Sayfa Düzenle. Liste boşsa `nil` (arayüz mevcut seçimi korur).
+  public static func suggested(for files: [PDFFileInfo]) -> (any PDFOperation)? {
+    guard !files.isEmpty else { return nil }
+    if files.contains(where: { $0.lockState == .restricted || $0.lockState == .passwordRequired }) {
+      return operation(withID: UnlockOperation.identifier)
+    }
+    if files.contains(where: \.hasBleed) {
+      return operation(withID: TrimOperation.identifier)
+    }
+    if files.count >= 2 {
+      return operation(withID: MergeOperation.identifier)
+    }
+    return operation(withID: PageEditOperation.identifier)
   }
 }

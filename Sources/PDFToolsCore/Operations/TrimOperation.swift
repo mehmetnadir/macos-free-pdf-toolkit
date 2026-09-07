@@ -15,6 +15,21 @@ public struct TrimOperation: PDFOperation {
 
   public init() {}
 
+  /// Kesim payı OLAN dosya sayısına bakar; motor kontrolü BUNUN İÇİNE taşındı (bkz.
+  /// `.claude/CLAUDE.md`) — `run()` içindeki `EngineLocator.trimEngine()` kontrolü savunma katmanı
+  /// olarak KALIYOR (arayüz bu fonksiyonu atlayıp doğrudan `run()`'ı çağırırsa yine korunmalı).
+  /// Sıra bilerek BÖYLE: kesim payı hiç yoksa motor kurulu olmasa bile "Kesim payı yok" demek daha
+  /// doğru (kurulum gerektirmeyen bir durum için Ghostscript istemek yanıltıcı olurdu).
+  public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
+    guard !files.isEmpty else { return .notApplicable(reason: "Önce PDF ekleyin") }
+    let bleedCount = files.filter(\.hasBleed).count
+    guard bleedCount > 0 else { return .notApplicable(reason: "Kesim payı yok") }
+    guard EngineLocator.trimEngine() != nil else {
+      return .notApplicable(reason: "Ghostscript gerekli — brew install ghostscript")
+    }
+    return .applicable(fileCount: bleedCount)
+  }
+
   public func run(
     file: PDFFileInfo, context: OperationContext,
     progress: @escaping @Sendable (Double) -> Void

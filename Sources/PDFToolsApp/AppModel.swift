@@ -46,6 +46,10 @@ final class AppModel {
   private(set) var pageGridTargetID: FileItem.ID?
 
   private var runTask: Task<Void, Never>?
+  /// Kullanıcı bir eylem kartına ELLE dokundu mu (bkz. `selectOperation`) — dokunduysa
+  /// `recomputeSuggestedOperation()` artık `selectedOperationID`'yi EZMEZ. Liste tamamen
+  /// boşalınca sıfırlanır: bir sonraki dosya grubu sıfırdan önerilsin (bkz. görev tanımı, Tur 3).
+  private var userSelectedOperation = false
 
   init() {
     engineNames = EngineLocator.availableEngines().map(\.name)
@@ -94,7 +98,35 @@ final class AppModel {
     selectedOperationID == UnlockOperation.identifier
       && items.contains { $0.info.lockState == .passwordRequired }
   }
-  var canRun: Bool { hasRequiredEngine && !isRunning && items.contains { $0.status.isPending } }
+  /// Seçili işlem GERÇEKTEN uygulanabilir mi (bkz. `PDFOperation.applicability`) — kartın soluk/
+  /// tıklanamaz durumuyla aynı gerçeği kullanır; `hasRequiredEngine` Birleştir/Parçala'nın qpdf
+  /// kontrolünü ayrıca sağlar (Kesim Payını At'ın motor kontrolü artık `applicability`'nin İÇİNDE).
+  var canRun: Bool {
+    guard hasRequiredEngine, !isRunning else { return false }
+    guard items.contains(where: { $0.status.isPending }) else { return false }
+    if case .applicable = operation.applicability(for: items.map(\.info)) { return true }
+    return false
+  }
+
+  /// Dosya listesinin üstünde gösterilen tek satırlık ön analiz — yalnız geçerli parçalar
+  /// yazılır (bkz. görev tanımı, Tur 3). Dosya yoksa `nil` (satır hiç gösterilmez).
+  var analysisSummary: String? {
+    guard !items.isEmpty else { return nil }
+    var parts = ["\(items.count) dosya"]
+    let totalPages = items.reduce(0) { $0 + $1.info.pageCount }
+    if totalPages > 0 { parts.append("\(totalPages) sayfa") }
+    let lockedCount = items.filter {
+      $0.info.lockState == .restricted || $0.info.lockState == .passwordRequired
+    }.count
+    if lockedCount > 0 { parts.append("\(lockedCount) şifreli") }
+    let bleedItems = items.filter { $0.info.hasBleed }
+    if !bleedItems.isEmpty, let inset = bleedItems.first?.info.bleedInsetPoints {
+      let mm = Double(inset) / 72 * 25.4
+      let formatted = mm.formatted(.number.precision(.fractionLength(0)))
+      parts.append("\(bleedItems.count) dosyada \(formatted) mm kesim payı")
+    }
+    return parts.joined(separator: " · ")
+  }
 
   var summary: String? {
     let done = items.filter { $0.status.isDone }.count
@@ -126,16 +158,43 @@ final class AppModel {
       candidates.map(PDFFileInfo.inspect)
     }.value
     items += infos.map { FileItem(info: $0) }
+    recomputeSuggestedOperation()
   }
 
   func remove(_ id: FileItem.ID) {
     guard !isRunning else { return }
     items.removeAll { $0.id == id }
+    recomputeSuggestedOperation()
   }
 
   func clear() {
     guard !isRunning else { return }
     items.removeAll()
+    recomputeSuggestedOperation()
+  }
+
+  // MARK: - İşlem (eylem kartı) seçimi
+
+  /// Bir eylem kartına tıklanınca çağrılır: seçimi ELLE yapıldı olarak işaretler — bkz.
+  /// `recomputeSuggestedOperation`, bir sonraki dosya ekleme/çıkarmada bu seçim EZİLMEZ.
+  func selectOperation(_ id: String) {
+    guard OperationRegistry.operation(withID: id) != nil else { return }
+    selectedOperationID = id
+    userSelectedOperation = true
+  }
+
+  /// Dosya listesi her değiştiğinde (ekleme/çıkarma/temizleme) çağrılır. Kullanıcı ELLE bir kart
+  /// seçmediyse `OperationRegistry.suggested(for:)`'a göre öne çıkan işlemi otomatik seçer. Liste
+  /// tamamen boşalırsa elle-seçim bayrağı sıfırlanır — bir sonraki dosya grubu sıfırdan önerilsin.
+  private func recomputeSuggestedOperation() {
+    guard !items.isEmpty else {
+      userSelectedOperation = false
+      return
+    }
+    guard !userSelectedOperation else { return }
+    if let suggested = OperationRegistry.suggested(for: items.map(\.info)) {
+      selectedOperationID = suggested.id
+    }
   }
 
   func pickFiles() {

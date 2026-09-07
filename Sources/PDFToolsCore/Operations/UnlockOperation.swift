@@ -13,6 +13,16 @@ public struct UnlockOperation: PDFOperation {
 
   public init() {}
 
+  /// Kilitli/kısıtlı dosya sayısına bakar (`.restricted`/`.passwordRequired`) — zaten kilitsiz
+  /// dosyalar için "Kilit Aç" göstermenin anlamı yok (bkz. kullanıcı geri bildirimi, Tur 3).
+  public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
+    guard !files.isEmpty else { return .notApplicable(reason: "Önce PDF ekleyin") }
+    let lockedCount = files.filter { $0.lockState == .restricted || $0.lockState == .passwordRequired }
+      .count
+    guard lockedCount > 0 else { return .notApplicable(reason: "Dosyalar zaten şifresiz") }
+    return .applicable(fileCount: lockedCount)
+  }
+
   public func run(
     file: PDFFileInfo, context: OperationContext,
     progress: @escaping @Sendable (Double) -> Void

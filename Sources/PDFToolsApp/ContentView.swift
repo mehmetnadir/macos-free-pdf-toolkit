@@ -8,6 +8,17 @@ struct ContentView: View {
   var body: some View {
     @Bindable var model = model
     VStack(spacing: 0) {
+      // Ön analiz satırı: dosya yoksa hiç görünmez (bkz. `AppModel.analysisSummary`).
+      if let summary = model.analysisSummary {
+        Text(summary)
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 8)
+        Divider()
+      }
+
       Group {
         if model.items.isEmpty {
           DropZoneView(isTargeted: isDropTargeted) { model.pickFiles() }
@@ -26,9 +37,14 @@ struct ContentView: View {
       }
 
       Divider()
+      // Eylem kartları: uygulanabilirliğe dayalı seçim (İşlem Picker'ının yerini alır, bkz.
+      // `.claude/CLAUDE.md` Tur 3). Seçili kartın seçenekleri (varsa) hemen altında.
+      ActionCardsView()
+      OperationOptionsRow()
+      Divider()
       ActionBar()
     }
-    .frame(minWidth: 560, minHeight: 380)
+    .frame(minWidth: 640, minHeight: 480)
     .dropDestination(for: URL.self) { urls, _ in
       Task { await model.add(urls: urls) }
       return true
@@ -78,6 +94,7 @@ struct DropZoneView: View {
       Button("Dosya Seç…", action: onPick)
         .controlSize(.large)
         .padding(.top, 6)
+      capabilitiesList
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .padding(24)
@@ -94,6 +111,23 @@ struct DropZoneView: View {
         .padding(16)
     }
     .animation(.easeInOut(duration: 0.15), value: isTargeted)
+  }
+
+  /// Boş ekranda altı yeteneğin adı — okunur ama soluk (bkz. görev tanımı, Tur 3): henüz dosya
+  /// yokken "bu araç ne yapabilir" sorusuna kısayol.
+  private var capabilitiesList: some View {
+    LazyVGrid(
+      columns: [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 8)], spacing: 8
+    ) {
+      ForEach(OperationRegistry.all, id: \.id) { op in
+        Label(op.title, systemImage: op.systemImage)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+    }
+    .opacity(0.6)
+    .frame(maxWidth: 460)
+    .padding(.top, 14)
   }
 }
 
@@ -270,55 +304,152 @@ struct StatusView: View {
 
 }
 
+// MARK: - Eylem kartları
+
+/// İşlem Picker'ının yerini alan ızgara: her kart bir `PDFOperation` — ikon, başlık, tek satır alt
+/// metin. Uygulanamayan kartlar GİZLENMEZ, SOLDURULUR (keşfedilebilirlik) ve tıklanamaz olur; kart
+/// seçimi = işlem seçimi (bkz. `AppModel.selectOperation`).
+struct ActionCardsView: View {
+  @Environment(AppModel.self) private var model
+
+  private let columns = [GridItem(.adaptive(minimum: 155, maximum: 230), spacing: 8)]
+
+  var body: some View {
+    let files = model.items.map(\.info)
+    LazyVGrid(columns: columns, spacing: 8) {
+      ForEach(OperationRegistry.all, id: \.id) { op in
+        let applicability = op.applicability(for: files)
+        ActionCardView(
+          operation: op,
+          subtitle: cardSubtitle(for: op, applicability: applicability),
+          isApplicable: isApplicable(applicability),
+          isSelected: model.selectedOperationID == op.id,
+          isDisabled: model.isRunning,
+          onSelect: { model.selectOperation(op.id) }
+        )
+      }
+    }
+    .padding(.horizontal, 14)
+    .padding(.top, 10)
+    .padding(.bottom, 6)
+  }
+
+  private func isApplicable(_ applicability: OperationApplicability) -> Bool {
+    if case .applicable = applicability { return true }
+    return false
+  }
+
+  /// Kart alt metni: uygulanabilirse varsayılan "N dosyada", bazı işlemler bunun yerine kendi
+  /// cümlesini gösterir (Birleştir, Sayfa Düzenle — bkz. görev tanımı, Tur 3); değilse gerekçe.
+  private func cardSubtitle(for operation: any PDFOperation, applicability: OperationApplicability)
+    -> String
+  {
+    switch applicability {
+    case .notApplicable(let reason):
+      return reason
+    case .applicable(let count):
+      switch operation.id {
+      case MergeOperation.identifier:
+        return "\(count) dosyayı birleştirir"
+      case PageEditOperation.identifier:
+        return "Sayfa düzenleme tek dosyada çalışır — ilk dosya kullanılacak"
+      default:
+        return "\(count) dosyada"
+      }
+    }
+  }
+}
+
+struct ActionCardView: View {
+  let operation: any PDFOperation
+  let subtitle: String
+  let isApplicable: Bool
+  let isSelected: Bool
+  let isDisabled: Bool
+  let onSelect: () -> Void
+
+  var body: some View {
+    Button(action: onSelect) {
+      HStack(spacing: 8) {
+        Image(systemName: operation.systemImage)
+          .font(.title3)
+          .frame(width: 20)
+          .foregroundStyle(isSelected ? Color.accentColor : .primary)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(operation.title)
+            .font(.callout.weight(.medium))
+            .lineLimit(1)
+          Text(subtitle)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 10)
+      .padding(.vertical, 8)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2)
+      )
+    }
+    .buttonStyle(.plain)
+    .opacity(isApplicable ? 1 : 0.45)
+    .disabled(!isApplicable || isDisabled)
+    .help(subtitle)
+  }
+}
+
+// MARK: - Seçenekler satırı
+
+/// Seçili kartın seçenekleri (Parçala kipi, Görüntü biçimi/çözünürlüğü) + şifre alanı (Kilit Aç) —
+/// eylem kartlarının HEMEN altında, ince bir satır. Hiçbiri gerekmiyorsa satır hiç görünmez.
+struct OperationOptionsRow: View {
+  @Environment(AppModel.self) private var model
+
+  var body: some View {
+    @Bindable var model = model
+    let options = model.operation.options
+    if model.needsPassword || !options.isEmpty {
+      HStack(spacing: 12) {
+        if model.needsPassword {
+          SecureField("Şifre", text: $model.password)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 150)
+            .disabled(model.isRunning)
+        }
+        ForEach(options) { option in
+          Picker(option.label, selection: model.optionBinding(for: option)) {
+            ForEach(option.choices, id: \.value) { choice in
+              Text(choice.label).tag(choice.value)
+            }
+          }
+          .controlSize(.small)
+          .fixedSize()
+          .disabled(model.isRunning)
+        }
+        Spacer()
+      }
+      .padding(.horizontal, 14)
+      .padding(.bottom, 8)
+    }
+  }
+}
+
 // MARK: - Alt çubuk
 
 struct ActionBar: View {
   @Environment(AppModel.self) private var model
 
   var body: some View {
-    @Bindable var model = model
     HStack(spacing: 12) {
-      Picker("İşlem", selection: $model.selectedOperationID) {
-        ForEach(OperationRegistry.all, id: \.id) { op in
-          Label(op.title, systemImage: op.systemImage).tag(op.id)
-        }
-      }
-      .fixedSize()
-      .disabled(model.isRunning)
-
-      if model.needsPassword {
-        SecureField("Şifre", text: $model.password)
-          .textFieldStyle(.roundedBorder)
-          .frame(width: 150)
-          .disabled(model.isRunning)
-      }
-
-      // İşlem seçenekleri (Parçala kipi, Görüntü biçimi/çözünürlüğü) — genel bir form motoru
-      // yerine küçük Picker'lar; seçenek yoksa hiçbir şey görünmez.
-      ForEach(model.operation.options) { option in
-        Picker(option.label, selection: model.optionBinding(for: option)) {
-          ForEach(option.choices, id: \.value) { choice in
-            Text(choice.label).tag(choice.value)
-          }
-        }
-        .controlSize(.small)
-        .fixedSize()
-        .disabled(model.isRunning)
-      }
-
+      statusView
       Spacer()
-
-      if let summary = model.summary {
-        Text(summary).font(.callout).foregroundStyle(.secondary)
-      } else if !model.hasRequiredEngine {
-        Label(model.missingEngineMessage, systemImage: "exclamationmark.triangle")
-          .font(.callout).foregroundStyle(.orange)
-      } else if model.isInspecting {
-        ProgressView().controlSize(.small)
-      } else if !model.items.isEmpty {
-        Text("\(model.items.count) dosya").font(.callout).foregroundStyle(.secondary)
-      }
-
       if model.isRunning {
         Button("Durdur") { model.cancel() }
           .keyboardShortcut(.cancelAction)
@@ -332,6 +463,20 @@ struct ActionBar: View {
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
     .background(.bar)
+  }
+
+  /// Solda tek durum metni: özet (bitti/hata sayısı) → motor uyarısı → inceleniyor. Dosya sayısı
+  /// ayrıca burada YAZILMAZ — ön analiz satırı zaten gösteriyor (bkz. `AppModel.analysisSummary`).
+  @ViewBuilder
+  private var statusView: some View {
+    if let summary = model.summary {
+      Text(summary).font(.callout).foregroundStyle(.secondary)
+    } else if !model.hasRequiredEngine {
+      Label(model.missingEngineMessage, systemImage: "exclamationmark.triangle")
+        .font(.callout).foregroundStyle(.orange)
+    } else if model.isInspecting {
+      ProgressView().controlSize(.small)
+    }
   }
 
   /// Sayfa Düzenle işleminde "Sayfaları Uygula" pipeline'ı HEMEN başlatmaz — önce ızgara sheet'i

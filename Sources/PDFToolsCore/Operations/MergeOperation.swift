@@ -17,6 +17,16 @@ public struct MergeOperation: PDFOperation {
 
   public init() {}
 
+  /// En az iki dosya gerektirir — tüm listedeki dosya sayısına bakar (bu işlem `.combined`,
+  /// listenin TAMAMINI tek çağrıda işler; bkz. `runCombined`).
+  public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
+    guard !files.isEmpty else { return .notApplicable(reason: "Önce PDF ekleyin") }
+    guard files.count >= 2 else {
+      return .notApplicable(reason: "Birleştirmek için en az iki dosya gerekli")
+    }
+    return .applicable(fileCount: files.count)
+  }
+
   public func runCombined(
     files: [PDFFileInfo], context: OperationContext,
     progress: @escaping @Sendable (Double) -> Void

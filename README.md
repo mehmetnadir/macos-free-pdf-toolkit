@@ -26,7 +26,7 @@ Download the latest DMG from [Releases](../../releases), open it, and drag **PDF
 ## Usage
 
 ### GUI
-Open **PDF Tools.app**, drag PDF files (or a folder) onto the window, pick an operation (enter a password if the file needs one), run. The result list shows done/skipped/error per file; jump to the output in Finder from there.
+Open **PDF Tools.app** and drop PDF files (or a folder) onto the window. The app inspects them and shows an action card per operation — the ones that actually apply are enabled and one is auto-suggested (e.g. a locked file suggests Unlock, two clean files suggest Merge); the rest stay dimmed with the reason why (e.g. Unlock stays dim as "already unlocked" if nothing's encrypted). Tap a card to pick a different operation, enter a password if needed, run. The result list shows done/skipped/error per file; jump to the output in Finder from there.
 
 ### CLI
 ```bash

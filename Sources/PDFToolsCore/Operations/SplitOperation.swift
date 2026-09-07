@@ -33,6 +33,17 @@ public struct SplitOperation: PDFOperation {
 
   public init() {}
 
+  /// En az iki sayfalı dosya sayısına bakar (`run()`'daki `file.pageCount > 1` kontrolüyle aynı
+  /// eşik — tek sayfalık bir dosya bölünemez).
+  public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
+    guard !files.isEmpty else { return .notApplicable(reason: "Önce PDF ekleyin") }
+    let eligible = files.filter { $0.pageCount > 1 }.count
+    guard eligible > 0 else {
+      return .notApplicable(reason: "Parçalamak için en az iki sayfa gerekli")
+    }
+    return .applicable(fileCount: eligible)
+  }
+
   public func run(
     file: PDFFileInfo, context: OperationContext,
     progress: @escaping @Sendable (Double) -> Void

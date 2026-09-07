@@ -26,7 +26,7 @@ Proje erken aşamada ve henüz yapılmamış olanı saklamıyor — sırada ne o
 ## Kullanım
 
 ### GUI
-`PDF Araçları.app`'i aç, PDF dosyalarını (veya bir klasörü) pencereye sürükle-bırak, işlemi seç (dosya gerektiriyorsa şifreyi gir), çalıştır. Sonuç listesi dosya başına tamam/atlandı/hata gösterir; oradan çıktıyı Finder'da açabilirsin.
+`PDF Araçları.app`'i aç, PDF dosyalarını (veya bir klasörü) pencereye sürükle-bırak. Uygulama dosyaları analiz eder ve her işlem için bir eylem kartı gösterir — gerçekten uygulanabilenler etkindir ve biri otomatik öne çıkar (ör. kilitli bir dosya Kilit Aç'ı, iki temiz dosya Birleştir'i önerir); geri kalanı gerekçesiyle soluk kalır (ör. hiçbir dosya şifreli değilse Kilit Aç "zaten şifresiz" diye soluktur). Farklı bir işlem istersen bir karta dokun, gerekiyorsa şifreyi gir, çalıştır. Sonuç listesi dosya başına tamam/atlandı/hata gösterir; oradan çıktıyı Finder'da açabilirsin.
 
 ### CLI
 ```bash

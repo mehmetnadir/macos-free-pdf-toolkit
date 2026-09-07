@@ -37,6 +37,13 @@ public struct PageEditOperation: PDFOperation {
 
   public init() {}
 
+  /// Listede kaç dosya olursa olsun tek dosyada çalışır (bkz. `AppModel.beginPageEdit`: ilk
+  /// bekleyen dosya hedef alınır) — bu yüzden dosya varsa HER ZAMAN `.applicable(1)`, dosya sayısı
+  /// önemli değil. Arayüz bu durumda özel bir gerekçe metni gösterir (bkz. `ContentView`).
+  public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
+    files.isEmpty ? .notApplicable(reason: "Önce PDF ekleyin") : .applicable(fileCount: 1)
+  }
+
   public func run(
     file: PDFFileInfo, context: OperationContext,
     progress: @escaping @Sendable (Double) -> Void

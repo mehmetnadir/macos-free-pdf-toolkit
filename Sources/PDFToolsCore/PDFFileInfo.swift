@@ -51,6 +51,15 @@ public struct PDFFileInfo: Sendable, Equatable, Hashable {
 
   public var fileName: String { url.lastPathComponent }
 
+  /// Kesim payının (bleed) en geniş kenarı, punto cinsinden — `trimBox == nil` ise `nil`.
+  /// Ön analiz satırında ("N dosyada X mm kesim payı") temsili değer olarak kullanılır.
+  public var bleedInsetPoints: CGFloat? {
+    guard let trim = trimBox else { return nil }
+    return max(
+      trim.minX - mediaBox.minX, trim.minY - mediaBox.minY,
+      mediaBox.maxX - trim.maxX, mediaBox.maxY - trim.maxY)
+  }
+
   /// İki kutunun her kenarda en az bu kadar (punto) farklı olması "anlamlı fark" sayılır.
   /// Altındaki farklar yuvarlama/floating-point gürültüsü kabul edilir.
   private static let boxToleranceMin: CGFloat = 0.5
