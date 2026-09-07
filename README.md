@@ -2,6 +2,8 @@
 
 # PDF Tools
 
+[![CI](https://github.com/mehmetnadir/macos-free-pdf-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/mehmetnadir/macos-free-pdf-toolkit/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) ![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey)
+
 A free, local, native macOS PDF toolbox — no upload, no subscription.
 
 ![PDF Araçları](docs/screenshot.png)
