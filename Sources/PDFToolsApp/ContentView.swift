@@ -33,6 +33,18 @@ struct ContentView: View {
       Task { await model.add(urls: urls) }
       return true
     } isTargeted: { isDropTargeted = $0 }
+    .sheet(isPresented: $model.isShowingPageGridEditor) {
+      if let target = model.pageGridTargetItem {
+        PageGridView(
+          fileInfo: target.info, cache: model.thumbnailCache,
+          onApply: { pageOrder, rotations in
+            model.isShowingPageGridEditor = false
+            model.applyPageEdit(targetID: target.id, pageOrder: pageOrder, rotations: rotations)
+          },
+          onCancel: { model.isShowingPageGridEditor = false }
+        )
+      }
+    }
     .navigationTitle("PDF Araçları")
     .toolbar {
       ToolbarItemGroup(placement: .primaryAction) {
@@ -121,9 +133,7 @@ struct FileRowView: View {
 
   var body: some View {
     HStack(spacing: 10) {
-      Image(nsImage: NSWorkspace.shared.icon(forFile: item.info.url.path))
-        .resizable()
-        .frame(width: 32, height: 32)
+      FileThumbnailView(url: item.info.url, cache: model.thumbnailCache)
       VStack(alignment: .leading, spacing: 2) {
         Text(item.info.fileName)
           .lineLimit(1)
@@ -180,6 +190,31 @@ struct FileRowView: View {
     }
     return "\(mm(trim.width, decimals: 0)) × \(mm(trim.height, decimals: 0)) mm"
       + " · \(mm(inset, decimals: 1)) mm kesim payı"
+  }
+}
+
+/// Dosya listesindeki satırın küçük resmi: PDF'in İLK sayfası, `PageThumbnailCache` üzerinden.
+/// Gelene kadar genel Finder ikonu kalır (`ASLA boş beyaz kutu` kuralı) — yükleme `.task` ile
+/// arka planda olur, ana thread'i bloklamaz.
+struct FileThumbnailView: View {
+  let url: URL
+  let cache: PageThumbnailCache
+  @State private var thumbnail: NSImage?
+
+  var body: some View {
+    Group {
+      if let thumbnail {
+        Image(nsImage: thumbnail).resizable()
+      } else {
+        Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable()
+      }
+    }
+    .frame(width: 32, height: 32)
+    .task(id: url) {
+      guard let cgImage = await cache.thumbnail(for: url, page: 1, maxPixel: 64) else { return }
+      let size = NSSize(width: cgImage.width, height: cgImage.height)
+      thumbnail = NSImage(cgImage: cgImage, size: size)
+    }
   }
 }
 
@@ -288,7 +323,7 @@ struct ActionBar: View {
         Button("Durdur") { model.cancel() }
           .keyboardShortcut(.cancelAction)
       } else {
-        Button(model.operation.actionTitle) { model.run() }
+        Button(model.operation.actionTitle) { runOrOpenPageGrid() }
           .buttonStyle(.borderedProminent)
           .keyboardShortcut(.defaultAction)
           .disabled(!model.canRun)
@@ -297,5 +332,15 @@ struct ActionBar: View {
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
     .background(.bar)
+  }
+
+  /// Sayfa Düzenle işleminde "Sayfaları Uygula" pipeline'ı HEMEN başlatmaz — önce ızgara sheet'i
+  /// açılır (bkz. `AppModel.beginPageEdit`); diğer işlemler her zamanki gibi `run()` ile çalışır.
+  private func runOrOpenPageGrid() {
+    if model.selectedOperationID == PageEditOperation.identifier {
+      model.beginPageEdit()
+    } else {
+      model.run()
+    }
   }
 }

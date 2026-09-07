@@ -37,6 +37,13 @@ final class AppModel {
   let engineNames: [String]
   let hasTrimEngine: Bool
   let hasQPDF: Bool
+  /// Sayfa küçük resimleri için TEK örnek — uygulama ömrü boyunca yaşar, her sheet açılışında
+  /// yeniden kurulmaz (bkz. `.claude/CLAUDE.md`): aynı belge için render sonuçlarının bellek/disk
+  /// önbelleğinde kalıcı kalmasını istiyoruz, sheet başına yeni bir örnek bunu sıfırlardı.
+  let thumbnailCache = PageThumbnailCache()
+  /// "Sayfa Düzenle" ızgara sheet'i açık mı ve hangi dosya için (bkz. `beginPageEdit`).
+  var isShowingPageGridEditor = false
+  private(set) var pageGridTargetID: FileItem.ID?
 
   private var runTask: Task<Void, Never>?
 
@@ -54,6 +61,12 @@ final class AppModel {
 
   var operation: any PDFOperation {
     OperationRegistry.operation(withID: selectedOperationID) ?? OperationRegistry.all[0]
+  }
+
+  /// "Sayfa Düzenle" sheet'inin düzenlediği dosya — `beginPageEdit()` ile atanır.
+  var pageGridTargetItem: FileItem? {
+    guard let pageGridTargetID else { return nil }
+    return items.first { $0.id == pageGridTargetID }
   }
 
   var hasEngine: Bool { !engineNames.isEmpty }
@@ -214,6 +227,51 @@ final class AppModel {
 
   func cancel() {
     runTask?.cancel()
+  }
+
+  /// "Sayfaları Uygula" düğmesi Sayfa Düzenle işleminde basıldığında pipeline'ı HEMEN başlatmaz —
+  /// önce ızgara sheet'ini açar. İlk BEKLEYEN dosya hedef alınır; kullanıcı seçmez (görev tanımı:
+  /// listede birden çok dosya varken hangisini düzenleyeceği sorulmaz).
+  func beginPageEdit() {
+    guard !isRunning, let target = items.first(where: { $0.status.isPending }) else { return }
+    pageGridTargetID = target.id
+    isShowingPageGridEditor = true
+  }
+
+  /// Sheet'ten gelen planı uygular: yalnız `targetID` çalışır, listedeki DİĞER bekleyen dosyalar
+  /// "tek dosyada çalışır" notuyla `.skipped` işaretlenir (görev tanımı) — sayfa düzenleme tek bir
+  /// belgenin sayfa sayısına göre kurulmuş bir plandır, başka dosyaya anlamlı uygulanamaz.
+  func applyPageEdit(targetID: FileItem.ID, pageOrder: String, rotations: String) {
+    guard !isRunning, let info = items.first(where: { $0.id == targetID })?.info else { return }
+    let otherPendingIDs = items.filter { $0.status.isPending && $0.id != targetID }.map(\.id)
+    for id in otherPendingIDs { update(id, .skipped("sayfa düzenleme tek dosyada çalışır")) }
+
+    var options: [String: String] = [PageEditOperation.pageOrderOptionID: pageOrder]
+    if !rotations.isEmpty { options[PageEditOperation.rotationsOptionID] = rotations }
+    let context = OperationContext(options: options)
+
+    isRunning = true
+    update(targetID, .running(nil))
+    runTask = Task {
+      defer {
+        isRunning = false
+        runTask = nil
+      }
+      do {
+        let outcome = try await PageEditOperation().run(file: info, context: context) { fraction in
+          Task { @MainActor in self.update(targetID, .running(fraction)) }
+        }
+        switch outcome {
+        case .produced(let urls, let note): update(targetID, .done(urls, note: note))
+        case .skipped(let reason): update(targetID, .skipped(reason))
+        }
+      } catch is CancellationError {
+        update(targetID, .pending)
+      } catch {
+        update(targetID, .failed(error.localizedDescription))
+      }
+      if !Task.isCancelled { NSSound(named: "Glass")?.play() }
+    }
   }
 
   private func update(_ id: FileItem.ID, _ status: ItemStatus) {

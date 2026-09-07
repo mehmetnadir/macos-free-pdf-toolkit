@@ -15,6 +15,7 @@
 - **Birleştir** — listedeki tüm dosyaları, sürüklediğin sırayla, tek PDF'te birleştirir.
 - **Parçala** — bir PDF'i parçalara böler: her sayfa ayrı dosya, sabit boyutlu parçalar (2/5/10/20/50 sayfa) ya da ortadan ikiye bölme.
 - **PDF → görüntü** — her sayfayı PNG, JPEG ya da HEIC olarak, 72–600 dpi arası, tamamen cihaz üzerinde dışa aktarır (yerleşik CoreGraphics/ImageIO, alt süreç yok). HEIC yalnızca sistemin gerçekten yazabildiği durumlarda sunulur — varsayılmaz, çalışma anında kontrol edilir.
+- **Sayfa sırala/döndür/sil** — bir sayfa ızgarasında sayfaları sürükleyip yeniden sıralayabilir, tıklayarak döndürebilir ya da silebilirsin (geri alınabilir); hepsi tek bir qpdf geçişinde uygulanır ve onayladığın plana göre (sıra, döndürme, sayfa sayısı) sayfa sayfa doğrulanır. Küçük resimler kalıcı bir disk önbelleğinden gelir — ilk 12 küçük resim soğukken ~2,75 sn sürer, aynı kitabı sonra tekrar açmak ~0,008 sn sürer.
 
 Proje erken aşamada ve henüz yapılmamış olanı saklamıyor — sırada ne olduğu için [Yol Haritası](#yol-haritası)'na bak.
 
@@ -35,6 +36,7 @@ swift run pdftools trim [--out KLASÖR] dosya.pdf...
 swift run pdftools merge [--out KLASÖR] dosya.pdf...
 swift run pdftools split [--mode her|n:10|ikiye] [--out KLASÖR] dosya.pdf...
 swift run pdftools image [--format png|jpeg|heic] [--dpi 150] [--out KLASÖR] dosya.pdf...
+swift run pdftools pageedit [--order 3,1,2] [--rotate 1:90,4:180] [--out KLASÖR] dosya.pdf...
 ```
 
 ## Motor Karşılaştırması
@@ -55,7 +57,7 @@ qpdf ve pdfcpu, `packaging/build-engines.sh` ile universal (arm64+x86_64) statik
 
 ## Yol Haritası
 
-- **v0.2** — Birleştir ✅, Parçala ✅, PDF → görüntü ✅, sayfa sırala/döndür/sil, Filigran kaldır
+- **v0.2** — Birleştir ✅, Parçala ✅, PDF → görüntü ✅, Sayfa sırala/döndür/sil ✅, Filigran kaldır
 - **v0.3** — Sıkıştır, filigran/sayfa numarası ekle, Şifrele, QR ekle/ayıkla
 - **v0.4** — Lineerleştir, onar/doğrula, görsel çıkar, yer imi düzenle, metin/metadata çıkar
 - **v1.0** — Derin OCR (düzen ve formül farkında, OmniDocBench ile ölçülecek)
@@ -67,7 +69,7 @@ Gereksinimler: macOS 14+, Xcode 26 / Swift 6.3. Motor derlemesi için ek olarak 
 ```bash
 ./packaging/build-engines.sh   # qpdf + pdfcpu'yu vendor/bin/'e derler (internet gerekir, tekrarlanabilir)
 swift build                    # universal derleme: swift build --arch arm64 --arch x86_64
-swift test                     # 28 test, Tests/PDFToolsCoreTests/ (gs kurulu değilse kesim testleri atlanır)
+swift test                     # 46 test, Tests/PDFToolsCoreTests/ (gs kurulu değilse kesim testleri atlanır)
 ./packaging/build.sh           # build/PDF Araçları.app üretir (Developer ID imza için SIGN_IDENTITY env)
 ```
 

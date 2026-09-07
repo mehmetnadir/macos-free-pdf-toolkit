@@ -10,6 +10,7 @@ func usage() -> Never {
       pdftools merge [--out KLASÖR] <dosya.pdf>...
       pdftools split [--mode her|n:10|ikiye] [--out KLASÖR] <dosya.pdf|klasör>...
       pdftools image [--format png|jpeg|heic] [--dpi 150] [--out KLASÖR] <dosya.pdf|klasör>...
+      pdftools pageedit [--order 3,1,2] [--rotate 1:90,4:180] [--out KLASÖR] <dosya.pdf>...
       pdftools engines
     """)
   exit(64)
@@ -148,6 +149,35 @@ case "split":
   guard !files.isEmpty else { usage() }
   let context = OperationContext(outputDirectory: outputDirectory, options: options)
   exit(await runPerFile(SplitOperation(), files: files, context: context))
+
+case "pageedit":
+  var pageOrder: String?
+  var rotations: String?
+  let (outputDirectory, inputs) = parseArguments(arguments) { arg, index in
+    if arg == "--order" {
+      index += 1
+      guard index < arguments.count else { usage() }
+      pageOrder = arguments[index]
+      return true
+    }
+    if arg == "--rotate" {
+      index += 1
+      guard index < arguments.count else { usage() }
+      rotations = arguments[index]
+      return true
+    }
+    return false
+  }
+  // En az biri verilmeli — ikisi de eksikse CLI çağrısının bir anlamı yok (çekirdek katman
+  // `pageOrder` yokluğunu "tüm sayfalar sırayla" sayar, ama bu CLI'da sessiz no-op olurdu).
+  guard pageOrder != nil || rotations != nil else { usage() }
+  let files = PDFFileInfo.collectPDFs(from: inputs)
+  guard !files.isEmpty else { usage() }
+  var options: [String: String] = [:]
+  if let pageOrder { options[PageEditOperation.pageOrderOptionID] = pageOrder }
+  if let rotations { options[PageEditOperation.rotationsOptionID] = rotations }
+  let context = OperationContext(outputDirectory: outputDirectory, options: options)
+  exit(await runPerFile(PageEditOperation(), files: files, context: context))
 
 case "image":
   var format = "png"
