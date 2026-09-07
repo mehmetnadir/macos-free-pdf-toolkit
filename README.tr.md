@@ -26,6 +26,12 @@
 - **Görselleri Çıkar** — kitaptaki gömülü görselleri dışarı alır.
 - **Metni Çıkar** — metin katmanını `.txt` olarak verir. Taranmış kitapta boş dosya üretmek yerine OCR gerektiğini söyler.
 
+- **OCR** — taranmış kitaptan metni yerleşik Vision çerçevesiyle okur: model indirme yok, API anahtarı yok, sayfa başına yaklaşık bir saniye. Türkçe destekleniyor ve sonuç bunu saklamıyor: noktalı büyük İ bazen I okunuyor (gerçek bir ders kitabı sayfasında ölçüldü), bu yüzden notta kritik metni gözden geçirme uyarısı çıkıyor.
+- **Aranabilir Yap** — taranmış sayfanın üstüne görünmez metin katmanı koyar. Görüntüye dokunulmaz (piksel karşılaştırmasıyla doğrulandı), metin seçilebilir ve aranabilir olur; dosya kabul edilmeden önce geri okunarak sınanır.
+- **Filigran Ekle** ve **Sayfa Numarası Ekle** — pdfcpu yerine CoreText ile çizilir, çünkü ölçümde pdfcpu başlık ve alt bilgi metnini sessizce kırptı ("TEST HEADER" → "TEST HEA") ve sayfa numarası makrosu sayılmayan bir kapak sayfasını ifade edemiyor.
+- **Yer İmleri** — içindekiler ağacını JSON olarak dışa aktar, düzenle, geri yükle.
+- **Filigran Kaldır** (deneysel) — neredeyse her sayfada tekrarlayan nesneyi bulup boşaltır. Gerçek 144 sayfalık bir kitapta damgayı 143 sayfada buldu ve 1,7 saniyede kaldırdı; metin 143 kez geçmekten hiç geçmemeye indi.
+
 Proje erken aşamada ve henüz yapılmamış olanı saklamıyor — sırada ne olduğu için [Yol Haritası](#yol-haritası)'na bak.
 
 ## Kurulum
@@ -54,6 +60,12 @@ swift run pdftools linearize [--out KLASÖR] dosya.pdf...
 swift run pdftools repair [--out KLASÖR] dosya.pdf...
 swift run pdftools extractimages [--min-size 10000] [--out KLASÖR] dosya.pdf...
 swift run pdftools extracttext [--layout plain|pages] [--out KLASÖR] dosya.pdf...
+swift run pdftools ocr [--language tr|en|auto] [--dpi 200] [--level accurate|fast] [--out DIR] file.pdf...
+swift run pdftools searchable [--language tr|en|auto] [--dpi 200] [--out DIR] file.pdf...
+swift run pdftools watermarkadd --text TEXT [--position center|header|footer] [--out DIR] file.pdf...
+swift run pdftools watermarkremove [--out DIR] file.pdf...
+swift run pdftools pagenumber [--position footer-center|...] [--start-at 1] [--format plain|ofN] [--out DIR] file.pdf...
+swift run pdftools bookmarks [--mode export|import] [--file outline.json] [--out DIR] file.pdf...
 ```
 
 ## Motor Karşılaştırması
@@ -74,9 +86,8 @@ qpdf ve pdfcpu, `packaging/build-engines.sh` ile universal (arm64+x86_64) statik
 
 ## Yol Haritası
 
-- **Bitti** — Kilit Aç, Kesim Payını At, Birleştir, Parçala, PDF → görüntü, Sayfa sırala/döndür/sil, Sıkıştır, Şifrele, QR ekle/ayıkla, Lineerleştir, Onar, Görselleri çıkar, Metni çıkar
-- **Sırada** — Filigran kaldır (deneysel: tespit için sayfa içerik akışlarını kendimiz çözmemiz gerekiyor, qpdf'in JSON'u onları sıkıştırılmış veriyor), filigran/sayfa numarası ekle, yer imi düzenle
-- **Sonra** — Derin OCR (düzen ve formül farkında, OmniDocBench ile ölçülecek)
+- **Bitti** — Kilit Aç, Kesim Payını At, Birleştir, Parçala, PDF → görüntü, Sayfa sırala/döndür/sil, Sıkıştır, Şifrele, QR ekle/ayıkla, Lineerleştir, Onar, Görselleri çıkar, Metni çıkar, OCR, Aranabilir yap, Filigran ekle, Sayfa numarası ekle, Yer imleri, Filigran kaldır (deneysel)
+- **Sonra** — Düzen ve formül farkında belge OCR'ı (OmniDocBench ile ölçülecek), formüllü ve karmaşık düzenli ders kitapları için
 
 ## Kaynaktan Derleme
 

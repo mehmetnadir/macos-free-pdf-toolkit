@@ -171,7 +171,9 @@ public enum OperationRegistry {
     UnlockOperation(), TrimOperation(), MergeOperation(), SplitOperation(), ImageExportOperation(),
     PageEditOperation(), CompressOperation(), EncryptOperation(),
     LinearizeOperation(), RepairOperation(), ExtractImagesOperation(), ExtractTextOperation(),
-    QRAddOperation(), QRExtractOperation(),
+    QRAddOperation(), QRExtractOperation(), OCROperation(), SearchablePDFOperation(),
+    WatermarkRemoveOperation(), WatermarkAddOperation(), PageNumberOperation(),
+    BookmarkOperation(),
   ]
 
   public static func operation(withID id: String) -> (any PDFOperation)? {

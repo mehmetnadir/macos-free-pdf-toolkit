@@ -22,6 +22,17 @@ func usage() -> Never {
       pdftools qradd --content METİN [--position br|bl|tr|tl] [--size small|medium|large]
                      [--pages all|first] [--out KLASÖR] <dosya.pdf|klasör>...
       pdftools qrextract [--dpi 200] [--out KLASÖR] <dosya.pdf|klasör>...
+      pdftools ocr [--language tr|en|auto] [--dpi 200] [--level accurate|fast]
+                  [--out KLASÖR] <dosya.pdf|klasör>...
+      pdftools searchable [--language tr|en|auto] [--dpi 200] [--out KLASÖR] <dosya.pdf|klasör>...
+      pdftools watermarkremove [--out KLASÖR] <dosya.pdf|klasör>...   (deneysel)
+      pdftools watermarkadd --text METİN [--position center|header|footer]
+                            [--opacity 0.15] [--font-size 36] [--color gray|red|blue]
+                            [--out KLASÖR] <dosya.pdf|klasör>...
+      pdftools pagenumber [--position footer-center|footer-right|footer-left|header-center|header-right]
+                          [--start-at 1] [--format plain|ofN] [--out KLASÖR] <dosya.pdf|klasör>...
+      pdftools bookmarks [--mode export|import] [--file yerimleri.json]
+                         [--out KLASÖR] <dosya.pdf|klasör>...
       pdftools engines
     """)
   exit(64)
@@ -234,6 +245,57 @@ case "qrextract":
   var qrxContext = OperationContext(outputDirectory: qrxOut)
   qrxContext.options = qrxSeçenekleri
   exit(await runPerFile(QRExtractOperation(), files: qrxFiles, context: qrxContext))
+
+case "ocr", "searchable":
+  var ocrSeçenekleri: [String: String] = [:]
+  let (ocrOut, ocrInputs) = parseArguments(arguments) { arg, index in
+    let eşleme = ["--language": OCROperation.languageOptionID,
+                  "--dpi": OCROperation.dpiOptionID,
+                  "--level": OCROperation.levelOptionID]
+    guard let anahtar = eşleme[arg] else { return false }
+    index += 1
+    guard index < arguments.count else { usage() }
+    ocrSeçenekleri[anahtar] = arguments[index]
+    return true
+  }
+  let ocrFiles = PDFFileInfo.collectPDFs(from: ocrInputs)
+  guard !ocrFiles.isEmpty else { usage() }
+  var ocrContext = OperationContext(outputDirectory: ocrOut)
+  ocrContext.options = ocrSeçenekleri
+  let ocrOp: any PDFOperation = command == "ocr" ? OCROperation() : SearchablePDFOperation()
+  exit(await runPerFile(ocrOp, files: ocrFiles, context: ocrContext))
+
+case "watermarkremove":
+  let (wmOut, wmInputs) = parseArguments(arguments)
+  let wmFiles = PDFFileInfo.collectPDFs(from: wmInputs)
+  guard !wmFiles.isEmpty else { usage() }
+  exit(await runPerFile(
+    WatermarkRemoveOperation(), files: wmFiles,
+    context: OperationContext(outputDirectory: wmOut)))
+
+case "watermarkadd", "pagenumber", "bookmarks":
+  var turSeçenekleri: [String: String] = [:]
+  let (turOut, turInputs) = parseArguments(arguments) { arg, index in
+    let eşleme = ["--text": WatermarkAddOperation.textOptionID,
+                  "--position": "position", "--opacity": "opacity",
+                  "--font-size": "fontSize", "--color": "color",
+                  "--start-at": PageNumberOperation.startAtOptionID,
+                  "--format": "format", "--mode": BookmarkOperation.modeOptionID,
+                  "--file": BookmarkOperation.bookmarkFileOptionID]
+    guard let anahtar = eşleme[arg] else { return false }
+    index += 1
+    guard index < arguments.count else { usage() }
+    turSeçenekleri[anahtar] = arguments[index]
+    return true
+  }
+  let turFiles = PDFFileInfo.collectPDFs(from: turInputs)
+  guard !turFiles.isEmpty else { usage() }
+  var turContext = OperationContext(outputDirectory: turOut)
+  turContext.options = turSeçenekleri
+  var turOp: any PDFOperation = BookmarkOperation()
+  if command == "watermarkadd" { turOp = WatermarkAddOperation() }
+  if command == "pagenumber" { turOp = PageNumberOperation() }
+  exit(await runPerFile(turOp, files: turFiles, context: turContext))
 
 case "trim":
   let (outputDirectory, inputs) = parseArguments(arguments)

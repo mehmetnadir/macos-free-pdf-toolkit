@@ -26,6 +26,12 @@ A free, local, native macOS PDF toolbox — no upload, no subscription.
 - **Extract images** — pull embedded images out of a book.
 - **Extract text** — the text layer as a `.txt` file. A scanned book is reported as needing OCR rather than silently producing an empty file.
 
+- **OCR** — read text out of a scanned book with the built-in Vision framework: no model download, no API key, about a second per page. Turkish is supported, and the result says so where it matters: the dotted capital İ is sometimes read as I, measured on a real textbook page, so the note tells you to check critical text.
+- **Make searchable** — put an invisible text layer over a scanned page. The image is untouched (verified by pixel comparison) and the text becomes selectable and searchable, checked by reading it back before the file is accepted.
+- **Add watermark** and **Add page numbers** — drawn with CoreText rather than pdfcpu, because pdfcpu silently truncated header and footer text in measurement ("TEST HEADER" became "TEST HEA") and its page-number macro cannot express a cover page that is not counted.
+- **Bookmarks** — export the outline to JSON, edit it, import it back.
+- **Remove watermark** (experimental) — find the object that repeats on nearly every page and empty it. On a real 144-page book it found the stamp on 143 pages and removed it in 1.7 s; the text went from 143 occurrences to none.
+
 This project is early and honest about what's not built yet — see [Roadmap](#roadmap) for what's next.
 
 ## Install
@@ -54,6 +60,12 @@ swift run pdftools linearize [--out DIR] file.pdf...
 swift run pdftools repair [--out DIR] file.pdf...
 swift run pdftools extractimages [--min-size 10000] [--out DIR] file.pdf...
 swift run pdftools extracttext [--layout plain|pages] [--out DIR] file.pdf...
+swift run pdftools ocr [--language tr|en|auto] [--dpi 200] [--level accurate|fast] [--out DIR] file.pdf...
+swift run pdftools searchable [--language tr|en|auto] [--dpi 200] [--out DIR] file.pdf...
+swift run pdftools watermarkadd --text TEXT [--position center|header|footer] [--out DIR] file.pdf...
+swift run pdftools watermarkremove [--out DIR] file.pdf...
+swift run pdftools pagenumber [--position footer-center|...] [--start-at 1] [--format plain|ofN] [--out DIR] file.pdf...
+swift run pdftools bookmarks [--mode export|import] [--file outline.json] [--out DIR] file.pdf...
 ```
 
 ## Engine Benchmark
@@ -74,9 +86,8 @@ qpdf and pdfcpu are compiled as universal (arm64+x86_64) static binaries by `pac
 
 ## Roadmap
 
-- **Done** — Unlock, Trim bleed, Merge, Split, PDF → image, Reorder/rotate/delete pages, Compress, Encrypt, Add/Extract QR, Linearize, Repair, Extract images, Extract text
-- **Next** — Remove watermark (experimental: detecting it needs decoding page content streams ourselves, since qpdf's JSON hands them over still compressed), add watermark/page numbers, edit bookmarks
-- **Later** — Deep OCR (layout- and formula-aware, benchmarked against OmniDocBench)
+- **Done** — Unlock, Trim bleed, Merge, Split, PDF → image, Reorder/rotate/delete pages, Compress, Encrypt, Add/Extract QR, Linearize, Repair, Extract images, Extract text, OCR, Make searchable, Add watermark, Add page numbers, Bookmarks, Remove watermark (experimental)
+- **Later** — Layout- and formula-aware document OCR, benchmarked against OmniDocBench, for textbooks with equations and complex page structure
 
 ## Building from source
 
