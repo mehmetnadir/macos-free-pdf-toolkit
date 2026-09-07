@@ -169,7 +169,9 @@ extension PDFOperation {
 public enum OperationRegistry {
   public static let all: [any PDFOperation] = [
     UnlockOperation(), TrimOperation(), MergeOperation(), SplitOperation(), ImageExportOperation(),
-    PageEditOperation(),
+    PageEditOperation(), CompressOperation(), EncryptOperation(),
+    LinearizeOperation(), RepairOperation(), ExtractImagesOperation(), ExtractTextOperation(),
+    QRAddOperation(), QRExtractOperation(),
   ]
 
   public static func operation(withID id: String) -> (any PDFOperation)? {

@@ -17,6 +17,15 @@
 - **PDF → görüntü** — her sayfayı PNG, JPEG ya da HEIC olarak, 72–600 dpi arası, tamamen cihaz üzerinde dışa aktarır (yerleşik CoreGraphics/ImageIO, alt süreç yok). HEIC yalnızca sistemin gerçekten yazabildiği durumlarda sunulur — varsayılmaz, çalışma anında kontrol edilir.
 - **Sayfa sırala/döndür/sil** — bir sayfa ızgarasında sayfaları sürükleyip yeniden sıralayabilir, tıklayarak döndürebilir ya da silebilirsin (geri alınabilir); hepsi tek bir qpdf geçişinde uygulanır ve onayladığın plana göre (sıra, döndürme, sayfa sayısı) sayfa sayfa doğrulanır. Küçük resimler kalıcı bir disk önbelleğinden gelir — ilk 12 küçük resim soğukken ~2,75 sn sürer, aynı kitabı sonra tekrar açmak ~0,008 sn sürer.
 
+- **Sıkıştır** — üç kademe, çünkü dürüst cevap kademeye göre kat kat değişiyor. Paketli qpdf ile kayıpsız (görsel yoğun bir kitapta yaklaşık %9), Ghostscript kuruluysa daha güçlü (yaklaşık %39), ya da her sayfayı görselleştir (yaklaşık %91, metin katmanı gider — uygulama bunu sonuçta söyler).
+- **Şifrele** — qpdf ile 256-bit AES, kullanıcı ve sahip parolası, isteğe bağlı yazdırma/kopyalama kısıtı. 40 ve 128 bit güvensiz sayıldığı için hiç sunulmuyor.
+- **QR Ekle** — her sayfaya ya da yalnız ilk sayfaya, istenen köşeye QR çizer; sayfayı rasterleştirmez. Çıktı kabul edilmeden önce geri taranır, yani okunmayan QR sessiz başarı değil, hatadır.
+- **QR Ayıkla** — kitaptaki bütün QR'ları `sayfa`/`içerik` satırları olarak listeler. Varsayılan 200 dpi: gerçek bir ders kitabında ölçüldü, 100 dpi'da hiçbir şey bulunamıyor ve bu "bu kitapta QR yok" ile ayırt edilemiyor. Rapor her zaman kaç sayfa tarandığını yazar.
+- **Hızlı Görünüm İçin Hazırla** — `qpdf --linearize`, büyük kitap ağ üzerinden sayfa sayfa açılsın diye.
+- **Onar** — `qpdf --check` ile teşhis, gerçekten sorun varsa yeniden yaz; temiz dosya gereksiz yere yeniden yazılmaz, temiz olduğu söylenir.
+- **Görselleri Çıkar** — kitaptaki gömülü görselleri dışarı alır.
+- **Metni Çıkar** — metin katmanını `.txt` olarak verir. Taranmış kitapta boş dosya üretmek yerine OCR gerektiğini söyler.
+
 Proje erken aşamada ve henüz yapılmamış olanı saklamıyor — sırada ne olduğu için [Yol Haritası](#yol-haritası)'na bak.
 
 ## Kurulum
@@ -37,6 +46,14 @@ swift run pdftools merge [--out KLASÖR] dosya.pdf...
 swift run pdftools split [--mode her|n:10|ikiye] [--out KLASÖR] dosya.pdf...
 swift run pdftools image [--format png|jpeg|heic] [--dpi 150] [--out KLASÖR] dosya.pdf...
 swift run pdftools pageedit [--order 3,1,2] [--rotate 1:90,4:180] [--out KLASÖR] dosya.pdf...
+swift run pdftools compress [--level light|strong|raster] [--dpi 150] [--quality 0.7] [--out KLASÖR] dosya.pdf...
+swift run pdftools encrypt [--password PAROLA] [--owner-password PAROLA] [--permissions all|noprint|nocopy|readonly] [--out KLASÖR] dosya.pdf...
+swift run pdftools qradd --content METİN [--position br|bl|tr|tl] [--size small|medium|large] [--pages all|first] [--out KLASÖR] dosya.pdf...
+swift run pdftools qrextract [--dpi 200] [--out KLASÖR] dosya.pdf...
+swift run pdftools linearize [--out KLASÖR] dosya.pdf...
+swift run pdftools repair [--out KLASÖR] dosya.pdf...
+swift run pdftools extractimages [--min-size 10000] [--out KLASÖR] dosya.pdf...
+swift run pdftools extracttext [--layout plain|pages] [--out KLASÖR] dosya.pdf...
 ```
 
 ## Motor Karşılaştırması
@@ -57,10 +74,9 @@ qpdf ve pdfcpu, `packaging/build-engines.sh` ile universal (arm64+x86_64) statik
 
 ## Yol Haritası
 
-- **v0.2** — Birleştir ✅, Parçala ✅, PDF → görüntü ✅, Sayfa sırala/döndür/sil ✅, Filigran kaldır
-- **v0.3** — Sıkıştır, filigran/sayfa numarası ekle, Şifrele, QR ekle/ayıkla
-- **v0.4** — Lineerleştir, onar/doğrula, görsel çıkar, yer imi düzenle, metin/metadata çıkar
-- **v1.0** — Derin OCR (düzen ve formül farkında, OmniDocBench ile ölçülecek)
+- **Bitti** — Kilit Aç, Kesim Payını At, Birleştir, Parçala, PDF → görüntü, Sayfa sırala/döndür/sil, Sıkıştır, Şifrele, QR ekle/ayıkla, Lineerleştir, Onar, Görselleri çıkar, Metni çıkar
+- **Sırada** — Filigran kaldır (deneysel: tespit için sayfa içerik akışlarını kendimiz çözmemiz gerekiyor, qpdf'in JSON'u onları sıkıştırılmış veriyor), filigran/sayfa numarası ekle, yer imi düzenle
+- **Sonra** — Derin OCR (düzen ve formül farkında, OmniDocBench ile ölçülecek)
 
 ## Kaynaktan Derleme
 

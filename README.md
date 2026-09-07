@@ -17,6 +17,15 @@ A free, local, native macOS PDF toolbox — no upload, no subscription.
 - **PDF → image** — export every page as PNG, JPEG, or HEIC, at 72–600 dpi, entirely on-device (built-in CoreGraphics/ImageIO, no subprocess). HEIC is offered only where the system can actually write it — checked at runtime, not assumed.
 - **Reorder / rotate / delete pages** — a page grid (drag to reorder, click to rotate or delete, with undo) turns your plan into a single qpdf pass, then verifies the result page-by-page against that exact plan. Thumbnails come from a persistent on-disk cache — the first 12 thumbnails take ~2.75 s cold, ~0.008 s on a later reopen of the same book.
 
+- **Compress** — three levels, because the honest answer differs by an order of magnitude. Lossless with the bundled qpdf (about 9% on an image-heavy book), stronger with Ghostscript if you have it (about 39%), or rasterise every page (about 91%, and the text layer is gone — the app says so on the result).
+- **Encrypt** — 256-bit AES via qpdf, user and owner passwords, optional print/copy restrictions. 40- and 128-bit are considered insecure and are not offered.
+- **Add QR** — draw a QR code on every page or just the first, in any corner, without rasterising the page. The output is scanned back before it is accepted, so a QR that does not decode is a failure, not a silent success.
+- **Extract QR** — list every QR in a book as `page`/`content` lines. Defaults to 200 dpi: measured on a real textbook, detection finds nothing at all at 100 dpi, which is indistinguishable from "this book has no QR codes". The report always states how many pages were scanned.
+- **Prepare for fast web view** — `qpdf --linearize`, so a large book opens page by page over the network.
+- **Repair** — diagnose with `qpdf --check` and rewrite only if something is actually wrong; a clean file is reported as clean rather than needlessly rewritten.
+- **Extract images** — pull embedded images out of a book.
+- **Extract text** — the text layer as a `.txt` file. A scanned book is reported as needing OCR rather than silently producing an empty file.
+
 This project is early and honest about what's not built yet — see [Roadmap](#roadmap) for what's next.
 
 ## Install
@@ -37,6 +46,14 @@ swift run pdftools merge [--out DIR] file.pdf...
 swift run pdftools split [--mode her|n:10|ikiye] [--out DIR] file.pdf...
 swift run pdftools image [--format png|jpeg|heic] [--dpi 150] [--out DIR] file.pdf...
 swift run pdftools pageedit [--order 3,1,2] [--rotate 1:90,4:180] [--out DIR] file.pdf...
+swift run pdftools compress [--level light|strong|raster] [--dpi 150] [--quality 0.7] [--out DIR] file.pdf...
+swift run pdftools encrypt [--password PASSWORD] [--owner-password PASSWORD] [--permissions all|noprint|nocopy|readonly] [--out DIR] file.pdf...
+swift run pdftools qradd --content TEXT [--position br|bl|tr|tl] [--size small|medium|large] [--pages all|first] [--out DIR] file.pdf...
+swift run pdftools qrextract [--dpi 200] [--out DIR] file.pdf...
+swift run pdftools linearize [--out DIR] file.pdf...
+swift run pdftools repair [--out DIR] file.pdf...
+swift run pdftools extractimages [--min-size 10000] [--out DIR] file.pdf...
+swift run pdftools extracttext [--layout plain|pages] [--out DIR] file.pdf...
 ```
 
 ## Engine Benchmark
@@ -57,10 +74,9 @@ qpdf and pdfcpu are compiled as universal (arm64+x86_64) static binaries by `pac
 
 ## Roadmap
 
-- **v0.2** — Merge ✅, Split ✅, PDF → image ✅, Reorder/rotate/delete pages ✅, Remove watermark
-- **v0.3** — Compress, add watermark/page numbers, Encrypt, add/extract QR codes
-- **v0.4** — Linearize, repair/validate, extract images, edit bookmarks, extract text/metadata
-- **v1.0** — Deep OCR (layout- and formula-aware, benchmarked against OmniDocBench)
+- **Done** — Unlock, Trim bleed, Merge, Split, PDF → image, Reorder/rotate/delete pages, Compress, Encrypt, Add/Extract QR, Linearize, Repair, Extract images, Extract text
+- **Next** — Remove watermark (experimental: detecting it needs decoding page content streams ourselves, since qpdf's JSON hands them over still compressed), add watermark/page numbers, edit bookmarks
+- **Later** — Deep OCR (layout- and formula-aware, benchmarked against OmniDocBench)
 
 ## Building from source
 
