@@ -11,8 +11,9 @@
 ## Özellikler
 
 - **Kilit Aç** — şifreli PDF'lerin sahip/kullanıcı parolasını ve kısıtlamalarını, tamamen cihaz üzerinde kaldırır.
+- **Kesim Payını At** — matbaa kesim/taşma payını (TrimBox) kalıcı olarak siler, tamamen cihaz üzerinde. Ayrıca kurulu Ghostscript gerektirir (`brew install ghostscript`) — pakete neden gömülmediği için [Motor Karşılaştırması](#motor-karşılaştırması) bölümüne bak.
 
-Şu an tek işlem bu. Proje erken aşamada ve bunu saklamıyor — sırada ne olduğu için [Yol Haritası](#yol-haritası)'na bak.
+Proje erken aşamada ve henüz yapılmamış olanı saklamıyor — sırada ne olduğu için [Yol Haritası](#yol-haritası)'na bak.
 
 ## Kurulum
 
@@ -27,6 +28,7 @@
 ```bash
 swift run pdftools engines
 swift run pdftools unlock [--password ŞİFRE] [--out KLASÖR] dosya.pdf...
+swift run pdftools trim [--out KLASÖR] dosya.pdf...
 ```
 
 ## Motor Karşılaştırması
@@ -43,6 +45,8 @@ swift run pdftools unlock [--password ŞİFRE] [--out KLASÖR] dosya.pdf...
 
 qpdf ve pdfcpu, `packaging/build-engines.sh` ile universal (arm64+x86_64) statik ikili olarak derlenir ve uygulama paketinin içinde taşınır — kilit açma sırasında çalışma zamanı bağımlılığı ya da ağ çağrısı yoktur.
 
+**Kesim Payını At** Ghostscript kullanır (`gs -dUseTrimBox -sDEVICE=pdfwrite`) ve **pakete gömülmez, gömülmeyecek**: Ghostscript AGPL-3.0-or-later, bu proje ise MIT ve yukarıdaki iki motor Apache-2.0. AGPL bir ikiliyi gömmek tüm dağıtımı AGPL kapsamına çeker. Bunun yerine yalnızca kullanıcının zaten kurduğu `gs` aranır (Homebrew); bulunamazsa özellik sessizce başarısız olmak yerine kurulum ipucuyla nazikçe devre dışı kalır. Ölçülmüş bir sınır: Ghostscript'in kesimi içeriği yalnızca yeni sayfa köküne göre KAYDIRIR, eski kesim sınırını aşan geometriyi (ör. tam sayfa taşan bir görsel ya da sayfayı boydan boya kesen bir kılavuz çizgisi) kırpmaz — bu yüzden uygulama her kesim çıktısını, bildirilen sayfa kutusunun dışına taşarak render edip kalıntı mürekkep var mı diye denetler; kutu üstverisine güvenmek yerine bunu reddeder (ya da işaretler).
+
 ## Yol Haritası
 
 - **v0.2** — Birleştir, Parçala, sayfa sırala/döndür/sil, Filigran kaldır, PDF → görüntü (PNG/JPEG/HEIC/WebP)
@@ -57,7 +61,7 @@ Gereksinimler: macOS 14+, Xcode 26 / Swift 6.3. Motor derlemesi için ek olarak 
 ```bash
 ./packaging/build-engines.sh   # qpdf + pdfcpu'yu vendor/bin/'e derler (internet gerekir, tekrarlanabilir)
 swift build                    # universal derleme: swift build --arch arm64 --arch x86_64
-swift test                     # 10 test, Tests/PDFToolsCoreTests/
+swift test                     # 16 test, Tests/PDFToolsCoreTests/ (gs kurulu değilse kesim testleri atlanır)
 ./packaging/build.sh           # build/PDF Araçları.app üretir (Developer ID imza için SIGN_IDENTITY env)
 ```
 

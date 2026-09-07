@@ -55,6 +55,22 @@ with the app binary, not build/dev-only tooling.
   source (not applicable here — the source is unmodified and only a compiled static library is
   linked in). No modifications were made to libjpeg-turbo's source in this project.
 
+## 4. Ghostscript (NOT bundled — optional runtime dependency)
+
+- **Component:** Ghostscript (`gs`)
+- **Upstream:** https://www.ghostscript.com / https://github.com/ArtifexSoftware/ghostpdl
+- **Distributed as:** **not distributed with this app at all.** The "Trim bleed" operation shells
+  out to a `gs` binary the user has separately installed on their own system (typically via
+  `brew install ghostscript`); PDF Tools never downloads, vendors, or bundles it.
+- **License:** GNU Affero General Public License v3.0 or later (SPDX: `AGPL-3.0-or-later`)
+- **Why it isn't bundled:** PDF Tools is MIT-licensed and the two engines it does bundle (qpdf,
+  pdfcpu) are Apache-2.0. Ghostscript's AGPL-3.0-or-later terms would attach to any distribution
+  that includes it, which is incompatible with keeping this project's own distribution under MIT
+  and would carry AGPL's network-use source-disclosure obligations. Instead, `EngineLocator`
+  looks for a system-installed `gs` (Homebrew paths) at runtime only; if it's absent, the Trim
+  operation is disabled with an install hint rather than being force-bundled. No Ghostscript
+  source or binary of any kind is present in this repository or in the built app bundle.
+
 ---
 
 This repository contains source code only; the vendored binaries are compiled from upstream

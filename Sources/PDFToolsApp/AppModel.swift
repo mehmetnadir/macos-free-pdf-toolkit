@@ -9,7 +9,8 @@ final class AppModel {
   enum ItemStatus: Equatable {
     case pending
     case running(Double?)
-    case done(URL)
+    /// `note`: örn. kesim payında kalan iz oranı gibi ek bilgi; yoksa `nil`.
+    case done(URL, note: String?)
     case skipped(String)
     case failed(String)
 
@@ -30,11 +31,13 @@ final class AppModel {
   var isRunning = false
   var isInspecting = false
   let engineNames: [String]
+  let hasTrimEngine: Bool
 
   private var runTask: Task<Void, Never>?
 
   init() {
     engineNames = EngineLocator.availableEngines().map(\.name)
+    hasTrimEngine = EngineLocator.trimEngine() != nil
     let launchURLs = CommandLine.arguments.dropFirst()
       .filter { $0.lowercased().hasSuffix(".pdf") }
       .map { URL(fileURLWithPath: $0) }
@@ -48,8 +51,17 @@ final class AppModel {
   }
 
   var hasEngine: Bool { !engineNames.isEmpty }
-  var needsPassword: Bool { items.contains { $0.info.lockState == .passwordRequired } }
-  var canRun: Bool { hasEngine && !isRunning && items.contains { $0.status.isPending } }
+  private var isTrimSelected: Bool { selectedOperationID == TrimOperation.identifier }
+  /// Seçili işlem için gereken motor kurulu mu (Kesim Payı → gs, diğerleri → qpdf/pdfcpu).
+  var hasRequiredEngine: Bool { isTrimSelected ? hasTrimEngine : hasEngine }
+  var missingEngineMessage: String {
+    isTrimSelected ? "Ghostscript gerekli — brew install ghostscript" : "PDF motoru bulunamadı"
+  }
+  /// Şifre alanı yalnız Kilit Aç için anlamlı; Kesim Payını At şifre kabul etmiyor.
+  var needsPassword: Bool {
+    !isTrimSelected && items.contains { $0.info.lockState == .passwordRequired }
+  }
+  var canRun: Bool { hasRequiredEngine && !isRunning && items.contains { $0.status.isPending } }
 
   var summary: String? {
     let done = items.filter { $0.status.isDone }.count
@@ -121,7 +133,7 @@ final class AppModel {
             Task { @MainActor in self.update(id, .running(fraction)) }
           }
           switch outcome {
-          case .produced(let url): update(id, .done(url))
+          case .produced(let url, let note): update(id, .done(url, note: note))
           case .skipped(let reason): update(id, .skipped(reason))
           }
         } catch is CancellationError {

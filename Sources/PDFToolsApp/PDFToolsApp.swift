@@ -31,7 +31,10 @@ struct PDFToolsApp: App {
       ContentView()
         .environment(model)
         .onAppear {
-          NSApp.activate(ignoringOtherApps: true)
+          // Odak ÇALINMAZ: `NSApp.activate(ignoringOtherApps: true)` kullanılmıyor.
+          // Uygulamayı açan eylem (Finder'da çift tık, `open`) zaten öne getiriyor; bu çağrı
+          // ise kullanıcı başka bir uygulamada çalışırken bile pencereyi zorla öne atıyordu
+          // ve arka planda başlatmayı (`open -g`) imkânsız kılıyordu.
           let model = model
           appDelegate.attach { urls in Task { await model.add(urls: urls) } }
         }

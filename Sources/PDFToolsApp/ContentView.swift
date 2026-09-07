@@ -96,7 +96,7 @@ struct FileListView: View {
         FileRowView(item: item)
           .contextMenu {
             Button("Finder'da Göster") { model.reveal(item.info.url) }
-            if case .done(let url) = item.status {
+            if case .done(let url, _) = item.status {
               Button("Çıktıyı Finder'da Göster") { model.reveal(url) }
             }
             Divider()
@@ -132,30 +132,68 @@ struct FileRowView: View {
           .lineLimit(1)
       }
       Spacer(minLength: 8)
-      StatusView(status: item.status, lockState: item.info.lockState) { url in model.reveal(url) }
+      StatusView(
+        status: item.status,
+        pendingSymbol: pendingSymbol,
+        pendingHelp: isTrim ? bleedLabel : item.info.lockState.label,
+        pendingIsProblem: item.info.lockState == .unreadable
+      ) { url in model.reveal(url) }
     }
     .padding(.vertical, 3)
   }
 
+  private var isTrim: Bool { model.selectedOperationID == TrimOperation.identifier }
+
   private var detailLine: String {
     var parts = [ByteCountFormatter.string(fromByteCount: item.info.fileSize, countStyle: .file)]
     if item.info.pageCount > 0 { parts.append("\(item.info.pageCount) sayfa") }
-    parts.append(item.info.lockState.label)
+    // Seçili işlem neyse onun karar verdiği bilgiyi göster: kilit açmada kilit durumu,
+    // kesimde kesim payı. Kullanıcı listeye bakıp işlemin ne yapacağını görebilmeli.
+    parts.append(isTrim ? bleedLabel : item.info.lockState.label)
     return parts.joined(separator: " · ")
+  }
+
+  private var pendingSymbol: String {
+    if item.info.lockState == .unreadable { return "xmark.octagon" }
+    if isTrim { return item.info.trimBox == nil ? "rectangle.dashed" : "crop" }
+    switch item.info.lockState {
+    case .none: return "lock.open"
+    case .restricted: return "lock.shield"
+    case .passwordRequired: return "lock.fill"
+    case .unreadable: return "xmark.octagon"
+    }
+  }
+
+  /// Kesim payı özeti: kesilmiş ölçü + kenar payı, milimetre cinsinden.
+  private var bleedLabel: String {
+    guard let trim = item.info.trimBox else { return "Kesim payı yok" }
+    let media = item.info.mediaBox
+    let inset = max(
+      trim.minX - media.minX, trim.minY - media.minY,
+      media.maxX - trim.maxX, media.maxY - trim.maxY)
+    // Ondalık ayırıcı sistem diline uymalı: Türkçede "3,0 mm", "3.0 mm" değil.
+    func mm(_ points: CGFloat, decimals: Int) -> String {
+      let value = Double(points) / 72 * 25.4
+      return value.formatted(.number.precision(.fractionLength(decimals)))
+    }
+    return "\(mm(trim.width, decimals: 0)) × \(mm(trim.height, decimals: 0)) mm"
+      + " · \(mm(inset, decimals: 1)) mm kesim payı"
   }
 }
 
 struct StatusView: View {
   let status: AppModel.ItemStatus
-  let lockState: PDFLockState
+  let pendingSymbol: String
+  let pendingHelp: String
+  let pendingIsProblem: Bool
   let reveal: (URL) -> Void
 
   var body: some View {
     switch status {
     case .pending:
-      Image(systemName: lockSymbol)
-        .foregroundStyle(lockState == .unreadable ? Color.red : Color.secondary)
-        .help(lockState.label)
+      Image(systemName: pendingSymbol)
+        .foregroundStyle(pendingIsProblem ? Color.red : Color.secondary)
+        .help(pendingHelp)
     case .running(let fraction):
       HStack(spacing: 8) {
         if let fraction {
@@ -165,9 +203,12 @@ struct StatusView: View {
           ProgressView().controlSize(.small)
         }
       }
-    case .done(let url):
+    case .done(let url, let note):
       HStack(spacing: 6) {
         Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        if let note {
+          Text(note).font(.caption).foregroundStyle(.secondary)
+        }
         Button("Göster") { reveal(url) }
           .buttonStyle(.link)
           .font(.caption)
@@ -187,14 +228,6 @@ struct StatusView: View {
     }
   }
 
-  private var lockSymbol: String {
-    switch lockState {
-    case .none: return "lock.open"
-    case .restricted: return "lock.shield"
-    case .passwordRequired: return "lock.fill"
-    case .unreadable: return "xmark.octagon"
-    }
-  }
 }
 
 // MARK: - Alt çubuk
@@ -224,8 +257,8 @@ struct ActionBar: View {
 
       if let summary = model.summary {
         Text(summary).font(.callout).foregroundStyle(.secondary)
-      } else if !model.hasEngine {
-        Label("PDF motoru bulunamadı", systemImage: "exclamationmark.triangle")
+      } else if !model.hasRequiredEngine {
+        Label(model.missingEngineMessage, systemImage: "exclamationmark.triangle")
           .font(.callout).foregroundStyle(.orange)
       } else if model.isInspecting {
         ProgressView().controlSize(.small)

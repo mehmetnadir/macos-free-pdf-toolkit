@@ -27,15 +27,38 @@ public struct PDFFileInfo: Sendable, Equatable, Hashable {
   public let fileSize: Int64
   public let pageCount: Int
   public let lockState: PDFLockState
+  /// İlk sayfanın MediaBox'ı (sayfa geometrisinin tamamı). Okunamadıysa `.zero`.
+  public let mediaBox: CGRect
+  /// İlk sayfanın TrimBox'ı — yalnızca MediaBox'tan anlamlı ölçüde (≥ 0,5 punto, bkz.
+  /// `boxToleranceMin`) farklıysa dolu. Eşitse (ya da hiç tanımlı değilse, ki bu durumda
+  /// `CGPDFPageGetBoxRect` PDF spesifikasyonundaki miras kuralıyla MediaBox'a düşer) `nil`.
+  public let trimBox: CGRect?
+  /// `trimBox != nil` ile aynı; "bu dosyada atılacak bir kesim payı var mı" sorusuna kısa yol.
+  public let hasBleed: Bool
 
-  public init(url: URL, fileSize: Int64, pageCount: Int, lockState: PDFLockState) {
+  public init(
+    url: URL, fileSize: Int64, pageCount: Int, lockState: PDFLockState,
+    mediaBox: CGRect = .zero, trimBox: CGRect? = nil
+  ) {
     self.url = url
     self.fileSize = fileSize
     self.pageCount = pageCount
     self.lockState = lockState
+    self.mediaBox = mediaBox
+    self.trimBox = trimBox
+    self.hasBleed = trimBox != nil
   }
 
   public var fileName: String { url.lastPathComponent }
+
+  /// İki kutunun her kenarda en az bu kadar (punto) farklı olması "anlamlı fark" sayılır.
+  /// Altındaki farklar yuvarlama/floating-point gürültüsü kabul edilir.
+  private static let boxToleranceMin: CGFloat = 0.5
+
+  private static func boxesDiffer(_ a: CGRect, _ b: CGRect) -> Bool {
+    abs(a.minX - b.minX) >= boxToleranceMin || abs(a.minY - b.minY) >= boxToleranceMin
+      || abs(a.maxX - b.maxX) >= boxToleranceMin || abs(a.maxY - b.maxY) >= boxToleranceMin
+  }
 
   /// Dosyayı okuyup kilit durumunu ve sayfa sayısını çıkarır. Büyük dosyalarda bile hızlıdır
   /// (yalnızca xref/trailer okunur); yine de ana thread dışında çağrılması önerilir.
@@ -53,7 +76,36 @@ public struct PDFFileInfo: Sendable, Equatable, Hashable {
       state = .passwordRequired
     }
     let pages = document.isUnlocked ? document.numberOfPages : 0
-    return PDFFileInfo(url: url, fileSize: size, pageCount: pages, lockState: state)
+    var mediaBox = CGRect.zero
+    var trimBox: CGRect?
+    if document.isUnlocked, let page = document.page(at: 1) {
+      mediaBox = page.getBoxRect(.mediaBox)
+      let rawTrimBox = page.getBoxRect(.trimBox)
+      if boxesDiffer(rawTrimBox, mediaBox) {
+        trimBox = rawTrimBox
+      }
+    }
+    return PDFFileInfo(
+      url: url, fileSize: size, pageCount: pages, lockState: state,
+      mediaBox: mediaBox, trimBox: trimBox)
+  }
+
+  /// Belge genelinde TrimBox'ın sayfalar arası tutarlı olup olmadığını kontrol eder.
+  /// Performans için yalnız ilk `sampleLimit` sayfa örneklenir — kesim payı tipik olarak bir
+  /// belgenin tamamında aynıdır (tek bir baskı şablonundan üretilir), tüm sayfaları gezmek
+  /// büyük dosyalarda (yüzlerce sayfa) gereksiz yavaşlık yaratır.
+  public static func trimBoxIsConsistent(_ url: URL, sampleLimit: Int = 50) -> Bool {
+    guard let document = CGPDFDocument(url as CFURL), document.isUnlocked else { return true }
+    let count = document.numberOfPages
+    guard count > 1, let firstPage = document.page(at: 1) else { return true }
+    let reference = firstPage.getBoxRect(.trimBox)
+    let limit = min(count, sampleLimit)
+    guard limit > 1 else { return true }
+    for index in 2...limit {
+      guard let page = document.page(at: index) else { continue }
+      if boxesDiffer(page.getBoxRect(.trimBox), reference) { return false }
+    }
+    return true
   }
 
   /// Bir URL listesini PDF dosyalarına açar: klasörler bir seviye taranır, PDF olmayanlar elenir.

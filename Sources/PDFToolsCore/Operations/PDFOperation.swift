@@ -14,7 +14,9 @@ public struct OperationContext: Sendable {
 }
 
 public enum OperationOutcome: Sendable, Equatable {
-  case produced(URL)
+  /// `note`: kullanıcıya gösterilecek isteğe bağlı ek bilgi (ör. kesim payında kalan iz oranı).
+  /// Bilgi yoksa `nil`.
+  case produced(URL, note: String?)
   case skipped(reason: String)
 }
 
@@ -24,6 +26,10 @@ public enum OperationError: Error, LocalizedError, Equatable {
   case wrongPassword
   case noEngine
   case outputStillEncrypted(engine: String)
+  /// İşlem için gereken motor sistemde bulunamadı (ör. gs). Mesaj kullanıcıya doğrudan gösterilir.
+  case engineMissing(String)
+  /// `TrimVerification` çıktıyı `.failed` olarak işaretledi; çıktı silinir, işlem hata döner.
+  case trimVerificationFailed(percent: Double)
 
   public var errorDescription: String? {
     switch self {
@@ -32,6 +38,10 @@ public enum OperationError: Error, LocalizedError, Equatable {
     case .wrongPassword: return "Şifre yanlış"
     case .noEngine: return "PDF motoru bulunamadı (qpdf / pdfcpu)"
     case .outputStillEncrypted(let engine): return "\(engine) çıktısı hâlâ şifreli"
+    case .engineMissing(let message): return message
+    case .trimVerificationFailed(let percent):
+      let formatted = String(format: "%.1f", percent)
+      return "Kesim payı yeterince temizlenemedi (kalıntı %\(formatted)) — çıktı silindi"
     }
   }
 }
@@ -52,7 +62,7 @@ public protocol PDFOperation: Sendable {
 }
 
 public enum OperationRegistry {
-  public static let all: [any PDFOperation] = [UnlockOperation()]
+  public static let all: [any PDFOperation] = [UnlockOperation(), TrimOperation()]
 
   public static func operation(withID id: String) -> (any PDFOperation)? {
     all.first { $0.id == id }

@@ -46,4 +46,25 @@ public enum EngineLocator {
     if let pdfcpu = find("pdfcpu") { engines.append(PDFCPUEngine(executable: pdfcpu)) }
     return engines
   }
+
+  /// `gs` (Ghostscript) için AYRI arama listesi — yukarıdaki `searchDirectories()`'ten bilinçli
+  /// olarak farklı: gs asla pakete gömülmez (bkz. GhostscriptEngine.swift lisans notu), o yüzden
+  /// `Contents/Resources/bin` ve `vendor/bin` aranmaz; yalnızca test override'ı
+  /// (`extraDirectories`) ve Homebrew yolları kontrol edilir. Bu liste `#if DEBUG` ile SINIRLI
+  /// DEĞİLDİR — Release derlemede de kullanıcının sisteminde kurulu gs bulunabilmelidir, çünkü
+  /// paketin içinde hiç gs yoktur (paketteki motorlar için geçerli "yalnız Release'de
+  /// bundle'dan ara" kısıtı burada anlamsızdır).
+  private static func gsSearchDirectories() -> [URL] {
+    extraDirectories + ["/opt/homebrew/bin", "/usr/local/bin"].map { URL(fileURLWithPath: $0) }
+  }
+
+  public static func trimEngine() -> (any TrimEngine)? {
+    for dir in gsSearchDirectories() {
+      let candidate = dir.appendingPathComponent("gs")
+      if FileManager.default.isExecutableFile(atPath: candidate.path) {
+        return GhostscriptEngine(executable: candidate)
+      }
+    }
+    return nil
+  }
 }

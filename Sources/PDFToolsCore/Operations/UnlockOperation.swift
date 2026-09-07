@@ -47,7 +47,7 @@ public struct UnlockOperation: PDFOperation {
           throw OperationError.outputStillEncrypted(engine: engine.name)
         }
         try fm.moveItem(at: partial, to: output)
-        return .produced(output)
+        return .produced(output, note: nil)
       } catch EngineError.wrongPassword {
         try? fm.removeItem(at: partial)
         throw OperationError.wrongPassword
