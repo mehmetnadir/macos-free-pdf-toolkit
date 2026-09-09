@@ -74,7 +74,7 @@ final class Tur1Tests: XCTestCase {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
     XCTAssertEqual(outputs.count, 1)
-    XCTAssertEqual(output.lastPathComponent, "a_birlesik.pdf")
+    XCTAssertEqual(output.lastPathComponent, "a_merged.pdf")
 
     // Kanıt 1: çıktı sayfa sayısı == girdilerin toplamı.
     XCTAssertTrue(MergeVerification.pageCountMatches(output, expected: 5))
@@ -98,7 +98,7 @@ final class Tur1Tests: XCTestCase {
     Self.makeMultiPageFixture(pageCount: 2, to: file)
     let outcome = try await MergeOperation().runCombined(
       files: [PDFFileInfo.inspect(file)], context: OperationContext(outputDirectory: dir)) { _ in }
-    XCTAssertEqual(outcome, .skipped(reason: "Birleştirmek için en az iki dosya gerekli"))
+    XCTAssertEqual(outcome, .skipped(reason: "Needs at least two files to merge"))
   }
 
   func testMergeFailsOnEncryptedInput() async throws {
@@ -131,7 +131,7 @@ final class Tur1Tests: XCTestCase {
     guard case .produced(let outputs, _) = outcome else { return XCTFail("çıktı üretilmedi: \(outcome)") }
     XCTAssertEqual(outputs.count, 5)
     XCTAssertTrue(SplitVerification.verify(outputs, expectedTotal: 5))
-    XCTAssertTrue(outputs.allSatisfy { $0.deletingLastPathComponent().lastPathComponent == "kitap_parca" })
+    XCTAssertTrue(outputs.allSatisfy { $0.deletingLastPathComponent().lastPathComponent == "kitap_parts" })
   }
 
   func testSplitIntoFixedSizeChunks() async throws {
@@ -158,7 +158,7 @@ final class Tur1Tests: XCTestCase {
     let source = dir.appendingPathComponent("kitap.pdf")
     Self.makeMultiPageFixture(pageCount: 5, to: source)
     let info = PDFFileInfo.inspect(source)
-    let context = OperationContext(outputDirectory: dir, options: [SplitOperation.modeOptionID: "ikiye"])
+    let context = OperationContext(outputDirectory: dir, options: [SplitOperation.modeOptionID: "half"])
     let outcome = try await SplitOperation().run(file: info, context: context) { _ in }
     guard case .produced(let outputs, _) = outcome else { return XCTFail("çıktı üretilmedi: \(outcome)") }
     XCTAssertEqual(outputs.count, 2)
@@ -173,17 +173,17 @@ final class Tur1Tests: XCTestCase {
     Self.makeMultiPageFixture(pageCount: 1, to: source)
     let outcome = try await SplitOperation().run(
       file: PDFFileInfo.inspect(source), context: OperationContext(outputDirectory: dir)) { _ in }
-    XCTAssertEqual(outcome, .skipped(reason: "Bölünecek yeterli sayfa yok"))
+    XCTAssertEqual(outcome, .skipped(reason: "Not enough pages to split"))
   }
 
   func testUniqueDirectoryAvoidsCollisions() throws {
     let dir = try makeTempDirectory()
     let input = dir.appendingPathComponent("kitap.pdf")
-    let first = OutputNaming.uniqueDirectory(for: input, suffix: "_parca")
-    XCTAssertEqual(first.lastPathComponent, "kitap_parca")
+    let first = OutputNaming.uniqueDirectory(for: input, suffix: "_parts")
+    XCTAssertEqual(first.lastPathComponent, "kitap_parts")
     try FileManager.default.createDirectory(at: first, withIntermediateDirectories: true)
-    let second = OutputNaming.uniqueDirectory(for: input, suffix: "_parca")
-    XCTAssertEqual(second.lastPathComponent, "kitap_parca 2")
+    let second = OutputNaming.uniqueDirectory(for: input, suffix: "_parts")
+    XCTAssertEqual(second.lastPathComponent, "kitap_parts 2")
   }
 
   // MARK: - 3. Görüntüye Aktar
@@ -201,7 +201,7 @@ final class Tur1Tests: XCTestCase {
 
     // Kanıt 1: dosya sayısı == sayfa sayısı.
     XCTAssertEqual(outputs.count, 3)
-    XCTAssertEqual(outputs.map(\.lastPathComponent), ["sayfa-001.png", "sayfa-002.png", "sayfa-003.png"])
+    XCTAssertEqual(outputs.map(\.lastPathComponent), ["page-001.png", "page-002.png", "page-003.png"])
 
     for url in outputs {
       guard let result = ImageExportVerification.inspect(url) else {

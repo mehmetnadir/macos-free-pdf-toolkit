@@ -22,21 +22,21 @@ import Vision
 public struct SearchablePDFOperation: PDFOperation {
   public static let identifier = "searchablepdf"
   public let id = SearchablePDFOperation.identifier
-  public let title = "Aranabilir PDF Yap"
-  public let subtitle = "Taranmış PDF'e görünmez metin katmanı ekleyip aranabilir yapar"
+  public let title = "Make Searchable"
+  public let subtitle = "Adds an invisible text layer to the scanned PDF so it becomes searchable"
   public let systemImage = "doc.text.magnifyingglass"
-  public let actionTitle = "Aranabilir Yap"
-  public let outputSuffix = "_aranabilir"
+  public let actionTitle = "Make Searchable"
+  public let outputSuffix = "_searchable"
 
   public init() {}
 
   public var options: [OperationOption] {
     [
       OperationOption(
-        id: OCROperation.languageOptionID, label: "Dil", choices: OCROperation.languageChoices,
+        id: OCROperation.languageOptionID, label: "Language", choices: OCROperation.languageChoices,
         defaultValue: "tr"),
       OperationOption(
-        id: OCROperation.dpiOptionID, label: "Çözünürlük", choices: OCROperation.dpiChoices,
+        id: OCROperation.dpiOptionID, label: "Resolution", choices: OCROperation.dpiChoices,
         defaultValue: "200"),
     ]
   }
@@ -54,7 +54,7 @@ public struct SearchablePDFOperation: PDFOperation {
       throw OperationError.unreadable
     }
     let total = document.numberOfPages
-    guard total > 0 else { return .skipped(reason: "Sayfa yok") }
+    guard total > 0 else { return .skipped(reason: "No pages") }
 
     let languageKey = context.options[OCROperation.languageOptionID] ?? "tr"
     let languages =
@@ -84,7 +84,7 @@ public struct SearchablePDFOperation: PDFOperation {
 
     guard let firstSample = samples.first else {
       try? fm.removeItem(at: partial)
-      return .skipped(reason: "Metin tanınamadı (\(total) sayfa tarandı)")
+      return .skipped(reason: "No text recognized (\(total) pages scanned)")
     }
 
     // Kanıt: görünmez metin GERÇEKTEN seçilebilir/aranabilir mi (bkz. dosya üstü yorum).
@@ -215,9 +215,9 @@ public enum SearchablePDFError: Error, LocalizedError, Equatable {
 
   public var errorDescription: String? {
     switch self {
-    case .generationFailed: return "Aranabilir PDF üretilemedi"
+    case .generationFailed: return "Could not generate a searchable PDF"
     case .verificationFailed:
-      return "Metin eklendi ama aranabilir olduğu doğrulanamadı — çıktı silindi"
+      return "Text was added but searchability could not be verified — output deleted"
     }
   }
 }

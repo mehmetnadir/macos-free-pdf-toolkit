@@ -41,7 +41,7 @@ public enum OperationApplicability: Sendable, Equatable {
   /// `fileCount`: bu işlemin GERÇEKTEN etkileyeceği dosya sayısı (ör. Kilit Aç'ta kilitli dosya
   /// sayısı, listedeki TÜM dosya sayısı değil).
   case applicable(fileCount: Int)
-  /// `reason`: Türkçe, tek cümle, kullanıcıya doğrudan gösterilir (kart alt metni + `.help()`).
+  /// `reason`: İngilizce, tek cümle, kullanıcıya doğrudan gösterilir (kart alt metni + `.help()`).
   case notApplicable(reason: String)
 }
 
@@ -87,21 +87,21 @@ public enum OperationError: Error, LocalizedError, Equatable {
 
   public var errorDescription: String? {
     switch self {
-    case .unreadable: return "Dosya geçerli bir PDF değil"
-    case .passwordRequired: return "Bu dosya için şifre gerekli"
-    case .wrongPassword: return "Şifre yanlış"
-    case .noEngine: return "PDF motoru bulunamadı (qpdf / pdfcpu)"
-    case .outputStillEncrypted(let engine): return "\(engine) çıktısı hâlâ şifreli"
+    case .unreadable: return "File is not a valid PDF"
+    case .passwordRequired: return "This file requires a password"
+    case .wrongPassword: return "Wrong password"
+    case .noEngine: return "No PDF engine found (qpdf / pdfcpu)"
+    case .outputStillEncrypted(let engine): return "\(engine) output is still encrypted"
     case .engineMissing(let message): return message
     case .trimVerificationFailed(let percent):
       let formatted = String(format: "%.1f", percent)
-      return "Kesim payı yeterince temizlenemedi (kalıntı %\(formatted)) — çıktı silindi"
+      return "Bleed margin could not be fully removed (residual \(formatted)%) — output deleted"
     case .mergeVerificationFailed:
-      return "Birleştirme doğrulanamadı — sayfa sayısı uyuşmuyor, çıktı silindi"
+      return "Merge could not be verified — page count mismatch, output deleted"
     case .splitVerificationFailed:
-      return "Parçalama doğrulanamadı — sayfa sayıları uyuşmuyor, çıktı silindi"
+      return "Split could not be verified — page counts mismatch, output deleted"
     case .imageExportVerificationFailed:
-      return "Görüntüye aktarma başarısız — üretilen dosya sayısı sayfa sayısıyla uyuşmuyor"
+      return "Image export failed — number of files produced doesn't match the page count"
     case .unsupportedOperationMode(let message): return message
     }
   }
@@ -121,7 +121,7 @@ public protocol PDFOperation: Sendable {
   var options: [OperationOption] { get }
 
   /// Bu işlem verilen dosya listesine uygulanabilir mi (bkz. `OperationApplicability`). Varsayılan
-  /// (protokol uzantısı): dosya varsa `.applicable(files.count)`, yoksa "Önce PDF ekleyin". Her
+  /// (protokol uzantısı): dosya varsa `.applicable(files.count)`, yoksa "Add a PDF first". Her
   /// işlem kendi kuralına göre EZER (ör. Kilit Aç yalnız kilitli dosyaları sayar).
   func applicability(for files: [PDFFileInfo]) -> OperationApplicability
 
@@ -143,7 +143,7 @@ extension PDFOperation {
   public var options: [OperationOption] { [] }
 
   public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
-    files.isEmpty ? .notApplicable(reason: "Önce PDF ekleyin") : .applicable(fileCount: files.count)
+    files.isEmpty ? .notApplicable(reason: "Add a PDF first") : .applicable(fileCount: files.count)
   }
 
   /// `.combined` işlemler bu varsayılanı miras alır (kendi `run`'ını yazmaz) — `arity` doğru
@@ -153,7 +153,7 @@ extension PDFOperation {
     progress: @escaping @Sendable (Double) -> Void
   ) async throws -> OperationOutcome {
     throw OperationError.unsupportedOperationMode(
-      "\(title) yalnızca çoklu dosya (birleşik) modunda çalışır")
+      "\(title) only works in combined (multi-file) mode")
   }
 
   /// `.perFile` işlemler bu varsayılanı miras alır (kendi `runCombined`'ını yazmaz).
@@ -162,7 +162,7 @@ extension PDFOperation {
     progress: @escaping @Sendable (Double) -> Void
   ) async throws -> OperationOutcome {
     throw OperationError.unsupportedOperationMode(
-      "\(title) dosya başına çalışır, birleşik modu yok")
+      "\(title) runs per file, it has no combined mode")
   }
 }
 

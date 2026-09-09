@@ -5,9 +5,9 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.ydspublishing.pdftools</string>
 	<key>CFBundleName</key>
-	<string>PDF Araçları</string>
+	<string>PDF Tools</string>
 	<key>CFBundleDisplayName</key>
-	<string>PDF Araçları</string>
+	<string>PDF Tools</string>
 	<key>CFBundleExecutable</key>
 	<string>PDFToolsApp</string>
 	<key>CFBundleIconFile</key>

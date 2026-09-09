@@ -11,10 +11,10 @@ import PDFKit
 public struct ExtractTextOperation: PDFOperation {
   public static let identifier = "extracttext"
   public let id = ExtractTextOperation.identifier
-  public let title = "Metni Çıkar"
-  public let subtitle = "Metin katmanını düz metin dosyasına aktarır"
+  public let title = "Extract Text"
+  public let subtitle = "Exports the text layer to a plain text file"
   public let systemImage = "doc.plaintext"
-  public let actionTitle = "Metni Çıkar"
+  public let actionTitle = "Extract Text"
 
   public static let layoutOptionID = "layout"
 
@@ -23,8 +23,8 @@ public struct ExtractTextOperation: PDFOperation {
   public var options: [OperationOption] {
     [
       OperationOption(
-        id: Self.layoutOptionID, label: "Biçim",
-        choices: [("plain", "Düz"), ("pages", "Sayfa ayraçlı")], defaultValue: "plain"),
+        id: Self.layoutOptionID, label: "Layout",
+        choices: [("plain", "Plain"), ("pages", "Page breaks")], defaultValue: "plain"),
     ]
   }
 
@@ -41,7 +41,7 @@ public struct ExtractTextOperation: PDFOperation {
       throw OperationError.unreadable
     }
     let total = document.pageCount
-    guard total > 0 else { return .skipped(reason: "Sayfa yok") }
+    guard total > 0 else { return .skipped(reason: "No pages") }
 
     var pageTexts: [String] = []
     pageTexts.reserveCapacity(total)
@@ -53,7 +53,7 @@ public struct ExtractTextOperation: PDFOperation {
 
     let hasContent = pageTexts.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     guard hasContent else {
-      return .skipped(reason: "Metin katmanı yok — taranmış olabilir, OCR gerekir")
+      return .skipped(reason: "No text layer — this may be a scanned PDF; try OCR")
     }
 
     let layout = context.options[Self.layoutOptionID] ?? "plain"
@@ -79,7 +79,7 @@ public struct ExtractTextOperation: PDFOperation {
       !written.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     else {
       try? fm.removeItem(at: partial)
-      throw ExtractTextError.verificationFailed("çıktı dosyası boş")
+      throw ExtractTextError.verificationFailed("output file is empty")
     }
 
     try fm.moveItem(at: partial, to: output)
@@ -87,14 +87,14 @@ public struct ExtractTextOperation: PDFOperation {
     return .produced(urls: [output], note: nil)
   }
 
-  /// "pages" kipinde sayfalar arasına `--- sayfa N ---` ayracı koyar (N: takip eden sayfanın
+  /// "pages" kipinde sayfalar arasına `--- page N ---` ayracı koyar (N: takip eden sayfanın
   /// numarası); "plain" kipinde sayfalar yalnız boş satırla ayrılır.
   static func combine(_ pageTexts: [String], layout: String) -> String {
     guard !pageTexts.isEmpty else { return "" }
     guard layout == "pages" else { return pageTexts.joined(separator: "\n\n") }
     var result = pageTexts[0]
     for index in 1..<pageTexts.count {
-      result += "\n\n--- sayfa \(index + 1) ---\n\n" + pageTexts[index]
+      result += "\n\n--- page \(index + 1) ---\n\n" + pageTexts[index]
     }
     return result
   }
@@ -119,7 +119,7 @@ public enum ExtractTextError: Error, LocalizedError, Equatable {
   public var errorDescription: String? {
     switch self {
     case .verificationFailed(let detail):
-      return "Metin çıkarma doğrulanamadı — \(detail) — çıktı silindi"
+      return "Text extraction could not be verified — \(detail) — output deleted"
     }
   }
 }

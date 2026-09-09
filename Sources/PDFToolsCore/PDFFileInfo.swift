@@ -14,10 +14,10 @@ public enum PDFLockState: Sendable, Equatable {
 
   public var label: String {
     switch self {
-    case .none: return "Kilitsiz"
-    case .restricted: return "İzinler kısıtlı"
-    case .passwordRequired: return "Şifre gerekli"
-    case .unreadable: return "Okunamıyor"
+    case .none: return "Unlocked"
+    case .restricted: return "Restricted permissions"
+    case .passwordRequired: return "Password required"
+    case .unreadable: return "Unreadable"
     }
   }
 }

@@ -3,29 +3,30 @@ import Foundation
 /// Kesim payını (baskı taşma payı / bleed, TrimBox dışı içerik) kalıcı olarak atar.
 /// Motor: Ghostscript (`gs`), yalnızca kullanıcının sisteminde kurulu bulunursa — bkz.
 /// `GhostscriptEngine.swift` (neden pakete gömülmediği için lisans notu).
-/// Çıktı: `<ad>_kesilmis.pdf` (kaynağın yanına ya da seçilen klasöre).
+/// Çıktı: `<ad>_trimmed.pdf` (kaynağın yanına ya da seçilen klasöre).
 public struct TrimOperation: PDFOperation {
   public static let identifier = "trim"
   public let id = TrimOperation.identifier
-  public let title = "Kesim Payını At"
-  public let subtitle = "Baskı taşma payını ve kesim dışı içeriği kalıcı olarak siler"
+  public let title = "Trim Bleed"
+  public let subtitle = "Permanently removes the printer's bleed margin and anything outside the "
+    + "trim line"
   public let systemImage = "crop"
-  public let actionTitle = "Kesim Payını At"
-  public let outputSuffix = "_kesilmis"
+  public let actionTitle = "Trim Bleed"
+  public let outputSuffix = "_trimmed"
 
   public init() {}
 
   /// Kesim payı OLAN dosya sayısına bakar; motor kontrolü BUNUN İÇİNE taşındı (bkz.
   /// `.claude/CLAUDE.md`) — `run()` içindeki `EngineLocator.trimEngine()` kontrolü savunma katmanı
   /// olarak KALIYOR (arayüz bu fonksiyonu atlayıp doğrudan `run()`'ı çağırırsa yine korunmalı).
-  /// Sıra bilerek BÖYLE: kesim payı hiç yoksa motor kurulu olmasa bile "Kesim payı yok" demek daha
-  /// doğru (kurulum gerektirmeyen bir durum için Ghostscript istemek yanıltıcı olurdu).
+  /// Sıra bilerek BÖYLE: kesim payı hiç yoksa motor kurulu olmasa bile "No bleed margin found"
+  /// demek daha doğru (kurulum gerektirmeyen bir durum için Ghostscript istemek yanıltıcı olurdu).
   public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
-    guard !files.isEmpty else { return .notApplicable(reason: "Önce PDF ekleyin") }
+    guard !files.isEmpty else { return .notApplicable(reason: "Add a PDF first") }
     let bleedCount = files.filter(\.hasBleed).count
-    guard bleedCount > 0 else { return .notApplicable(reason: "Kesim payı yok") }
+    guard bleedCount > 0 else { return .notApplicable(reason: "No bleed margin found") }
     guard EngineLocator.trimEngine() != nil else {
-      return .notApplicable(reason: "Ghostscript gerekli — brew install ghostscript")
+      return .notApplicable(reason: "Ghostscript required — brew install ghostscript")
     }
     return .applicable(fileCount: bleedCount)
   }
@@ -45,11 +46,11 @@ public struct TrimOperation: PDFOperation {
     }
 
     guard file.trimBox != nil else {
-      return .skipped(reason: "Kesim payı yok")
+      return .skipped(reason: "No bleed margin found")
     }
 
     guard let engine = EngineLocator.trimEngine() else {
-      throw OperationError.engineMissing("Ghostscript gerekli: brew install ghostscript")
+      throw OperationError.engineMissing("Ghostscript required: brew install ghostscript")
     }
 
     let output = OutputNaming.uniqueURL(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
@@ -82,10 +83,10 @@ public struct TrimOperation: PDFOperation {
     var notes: [String] = []
     if verification.verdict == .partial {
       let formatted = String(format: "%.1f", verification.residuePercent)
-      notes.append("kalıntı %\(formatted)")
+      notes.append("residual \(formatted)%")
     }
     if !PDFFileInfo.trimBoxIsConsistent(output) {
-      notes.append("sayfalar arası kesim payı tutarsız")
+      notes.append("bleed margin is inconsistent across pages")
     }
     return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
   }

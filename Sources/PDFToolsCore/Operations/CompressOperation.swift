@@ -13,7 +13,7 @@ public enum CompressError: Error, LocalizedError, Equatable {
   public var errorDescription: String? {
     switch self {
     case .verificationFailed:
-      return "Sıkıştırma doğrulanamadı (sayfa sayısı/içerik uyuşmuyor) — çıktı silindi"
+      return "Compression could not be verified (page count/content mismatch) — output deleted"
     }
   }
 }
@@ -38,11 +38,11 @@ public enum CompressError: Error, LocalizedError, Equatable {
 public struct CompressOperation: PDFOperation {
   public static let identifier = "compress"
   public let id = CompressOperation.identifier
-  public let title = "Sıkıştır"
-  public let subtitle = "Dosya boyutunu üç kademeden birinde küçültür"
+  public let title = "Compress"
+  public let subtitle = "Makes the file smaller; the strongest level removes the text layer"
   public let systemImage = "arrow.down.circle"
-  public let actionTitle = "Sıkıştır"
-  public let outputSuffix = "_kucuk"
+  public let actionTitle = "Compress"
+  public let outputSuffix = "_compressed"
 
   public static let levelOptionID = "level"
   public static let dpiOptionID = "dpi"
@@ -50,26 +50,29 @@ public struct CompressOperation: PDFOperation {
 
   /// "raster" kademesinin çıktısına HER ZAMAN eklenen uyarı — metin/aranabilirlik kaybı sessizce
   /// geçilmez.
-  public static let rasterTextLossWarning = "metin katmanı kayboldu, aranabilirlik gitti"
+  public static let rasterTextLossWarning = "text layer removed, no longer searchable"
 
   public init() {}
 
   public var options: [OperationOption] {
     [
       OperationOption(
-        id: Self.levelOptionID, label: "Kademe",
+        id: Self.levelOptionID, label: "Level",
         choices: [
-          ("light", "Hafif (kayıpsız)"),
-          ("strong", "Güçlü (Ghostscript)"),
-          ("raster", "Görselleştir (metin gider)"),
+          ("light", "Light (lossless)"),
+          ("strong", "Strong (needs Ghostscript)"),
+          ("raster", "Rasterize (text layer is lost)"),
         ], defaultValue: "light"),
       OperationOption(
-        id: Self.dpiOptionID, label: "Çözünürlük (Görselleştir)",
-        choices: [("72", "72 dpi"), ("150", "150 dpi"), ("200", "200 dpi"), ("300", "300 dpi")],
+        id: Self.dpiOptionID, label: "Resolution (Rasterize)",
+        choices: [
+          ("72", "72 dpi — smallest file"), ("150", "150 dpi — for screen"),
+          ("200", "200 dpi — balanced"), ("300", "300 dpi — for print"),
+        ],
         defaultValue: "150"),
       OperationOption(
-        id: Self.qualityOptionID, label: "Kalite (Görselleştir)",
-        choices: [("0.5", "Düşük"), ("0.7", "Orta"), ("0.85", "Yüksek")],
+        id: Self.qualityOptionID, label: "Quality (Rasterize)",
+        choices: [("0.5", "Low"), ("0.7", "Medium"), ("0.85", "High")],
         defaultValue: "0.7"),
     ]
   }
@@ -87,7 +90,7 @@ public struct CompressOperation: PDFOperation {
     case .passwordRequired: throw OperationError.passwordRequired
     case .restricted, .none: break
     }
-    guard file.pageCount > 0 else { return .skipped(reason: "Sayfa yok") }
+    guard file.pageCount > 0 else { return .skipped(reason: "No pages") }
 
     let level = context.options[Self.levelOptionID] ?? "light"
     let output = OutputNaming.uniqueURL(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
@@ -102,7 +105,7 @@ public struct CompressOperation: PDFOperation {
         // Yalnız yolu al — `GhostscriptEngine.trim` farklı bir çağrı (`-dUseTrimBox`) yapar,
         // burada YENİDEN KULLANILMAZ.
         guard let trimEngine = EngineLocator.trimEngine() else {
-          throw OperationError.engineMissing("Ghostscript gerekli: brew install ghostscript")
+          throw OperationError.engineMissing("Ghostscript required: brew install ghostscript")
         }
         progress(0)
         let arguments = [
@@ -138,7 +141,7 @@ public struct CompressOperation: PDFOperation {
 
       default:  // "light"
         guard let qpdf = EngineLocator.find("qpdf") else {
-          throw OperationError.engineMissing("qpdf motoru bulunamadı")
+          throw OperationError.engineMissing("qpdf engine not found")
         }
         progress(0)
         let arguments = [
@@ -203,7 +206,8 @@ public struct CompressOperation: PDFOperation {
     let sizeResult = CompressVerification.compareSize(input: file.url, output: partial)
     if sizeResult.verdict == .notSmaller {
       notes.append(
-        "çıktı küçülmedi (\(sizeResult.outputBytes) bayt ≥ \(sizeResult.inputBytes) bayt kaynak)")
+        "output didn't shrink (\(sizeResult.outputBytes) bytes ≥ \(sizeResult.inputBytes) "
+        + "bytes source)")
     }
 
     try fm.moveItem(at: partial, to: output)

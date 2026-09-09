@@ -22,11 +22,11 @@ import Foundation
 public struct PageEditOperation: PDFOperation {
   public static let identifier = "pageedit"
   public let id = PageEditOperation.identifier
-  public let title = "Sayfa Düzenle"
-  public let subtitle = "Sayfaları yeniden sırala, döndür, sil"
+  public let title = "Organize Pages"
+  public let subtitle = "Reorders, rotates, and deletes pages"
   public let systemImage = "square.grid.2x2"
-  public let actionTitle = "Sayfaları Uygula"
-  public let outputSuffix = "_duzenlenmis"
+  public let actionTitle = "Apply Pages"
+  public let outputSuffix = "_pages"
 
   /// `OperationContext.options` anahtarı: tutulacak sayfaların 1-tabanlı KAYNAK numaraları, istenen
   /// ÇIKTI sırasında, virgülle (`"3,1,2,5"`). Boşsa/eksikse tüm sayfalar kaynak sırasıyla tutulur.
@@ -41,7 +41,7 @@ public struct PageEditOperation: PDFOperation {
   /// bekleyen dosya hedef alınır) — bu yüzden dosya varsa HER ZAMAN `.applicable(1)`, dosya sayısı
   /// önemli değil. Arayüz bu durumda özel bir gerekçe metni gösterir (bkz. `ContentView`).
   public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
-    files.isEmpty ? .notApplicable(reason: "Önce PDF ekleyin") : .applicable(fileCount: 1)
+    files.isEmpty ? .notApplicable(reason: "Add a PDF first") : .applicable(fileCount: 1)
   }
 
   public func run(
@@ -60,7 +60,7 @@ public struct PageEditOperation: PDFOperation {
     let plan = try PageEditPlan.parse(options: context.options, pageCount: file.pageCount)
 
     guard let qpdf = EngineLocator.find("qpdf") else {
-      throw OperationError.engineMissing("qpdf motoru bulunamadı")
+      throw OperationError.engineMissing("qpdf engine not found")
     }
 
     let output = OutputNaming.uniqueURL(
@@ -210,19 +210,19 @@ public enum PageEditError: Error, LocalizedError, Equatable {
   public var errorDescription: String? {
     switch self {
     case .pageOutOfRange(let page, let total):
-      return "Sayfa numarası \(page) geçersiz — belgede \(total) sayfa var"
+      return "Page number \(page) is invalid — the document has \(total) pages"
     case .duplicatePageNumber(let page):
-      return "Sayfa \(page) planda birden çok kez geçiyor"
+      return "Page \(page) appears more than once in the plan"
     case .invalidPageToken(let token):
-      return "'\(token)' geçerli bir sayfa numarası değil"
+      return "'\(token)' is not a valid page number"
     case .invalidRotationToken(let token):
-      return "'\(token)' geçerli bir döndürme girişi değil (sayfa:derece bekleniyor)"
+      return "'\(token)' is not a valid rotation entry (expected page:degree)"
     case .invalidRotationDegree(let degree):
-      return "Döndürme derecesi \(degree) geçersiz — yalnız 0, 90, 180 ya da 270 olabilir"
+      return "Rotation degree \(degree) is invalid — only 0, 90, 180, or 270 are allowed"
     case .emptyResult:
-      return "Plan hiçbir sayfa tutmuyor — tüm sayfaları silmek geçersiz"
+      return "Plan keeps no pages — deleting all pages isn't allowed"
     case .verificationFailed(let detail):
-      return "Sayfa düzenleme doğrulanamadı — \(detail) — çıktı silindi"
+      return "Page edit could not be verified — \(detail) — output deleted"
     }
   }
 }

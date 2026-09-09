@@ -6,11 +6,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-APP_NAME="PDF Araçları"
+APP_NAME="PDF Tools"
 APP="build/${APP_NAME}.app"
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' packaging/Info.plist)"
-DMG="build/PDF-Araclari-${VERSION}.dmg"
+DMG="build/PDF-Tools-${VERSION}.dmg"
 STAGING="build/dmg-staging"
 
 [ -d "$APP" ] || { echo "HATA: $APP yok — önce ./packaging/build.sh" >&2; exit 1; }

@@ -80,7 +80,7 @@ final class Tur4Tests: XCTestCase {
     guard case .produced(let outputs, _) = outcome, let output = outputs.first else {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
-    XCTAssertEqual(output.lastPathComponent, "belge_kucuk.pdf")
+    XCTAssertEqual(output.lastPathComponent, "belge_compressed.pdf")
     XCTAssertTrue(CompressVerification.pageCountMatches(output, expected: 3))
 
     guard let doc = CGPDFDocument(output as CFURL), let page = doc.page(at: 1) else {
@@ -153,7 +153,7 @@ final class Tur4Tests: XCTestCase {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
     guard let note else { return XCTFail("boyut uyarısı beklenirken note nil geldi") }
-    XCTAssertTrue(note.contains("küçülmedi"), "boyut uyarısı yok: \(note)")
+    XCTAssertTrue(note.contains("didn't shrink"), "boyut uyarısı yok: \(note)")
 
     // Çıktı SİLİNMEDİ — kanıtsız "başarısız" davranışı da yok, dosya diskte duruyor.
     XCTAssertTrue(FileManager.default.fileExists(atPath: output.path), "çıktı silinmemeliydi")
@@ -181,7 +181,7 @@ final class Tur4Tests: XCTestCase {
     guard case .produced(let outputs, let note) = outcome, let output = outputs.first else {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
-    XCTAssertEqual(output.lastPathComponent, "gizli_sifreli.pdf")
+    XCTAssertEqual(output.lastPathComponent, "gizli_encrypted.pdf")
     XCTAssertNil(note, "farklı/güçlü parolalarla uyarı beklenmiyordu: \(note ?? "")")
 
     guard let probe = CGPDFDocument(output as CFURL) else { return XCTFail("çıktı açılamadı") }
@@ -229,7 +229,7 @@ final class Tur4Tests: XCTestCase {
       outputDirectory: dir, options: [EncryptOperation.userPasswordOptionID: "yeniParola"])
     let outcome = try await EncryptOperation().run(
       file: PDFFileInfo.inspect(fixture("user-locked")), context: context) { _ in }
-    XCTAssertEqual(outcome, .skipped(reason: "Zaten şifreli"))
+    XCTAssertEqual(outcome, .skipped(reason: "Already encrypted"))
   }
 
   // MARK: - 7. Sıkıştır — Güçlü (Ghostscript)

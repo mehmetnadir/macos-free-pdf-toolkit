@@ -77,7 +77,7 @@ final class PageEditTests: XCTestCase {
     guard case .produced(let outputs, _) = outcome, let output = outputs.first else {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
-    XCTAssertEqual(output.lastPathComponent, "kitap_duzenlenmis.pdf")
+    XCTAssertEqual(output.lastPathComponent, "kitap_pages.pdf")
     XCTAssertEqual(CGPDFDocument(output as CFURL)?.numberOfPages, 3)
 
     // Kanıt: çıktının i. sayfası, kaynağın plandaki i. sayfasıyla piksel düzeyinde eşleşiyor.

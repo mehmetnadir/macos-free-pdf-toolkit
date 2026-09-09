@@ -5,7 +5,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-APP_NAME="PDF Araçları"
+APP_NAME="PDF Tools"
 APP="build/${APP_NAME}.app"
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' packaging/Info.plist)"

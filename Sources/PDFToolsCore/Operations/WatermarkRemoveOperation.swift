@@ -12,8 +12,9 @@ enum WatermarkRemoveError: Error, LocalizedError, Equatable {
 
   var errorDescription: String? {
     switch self {
-    case .malformedQPDFOutput: return "qpdf JSON çıktısı ayrıştırılamadı"
-    case .verificationFailed(let reason): return "Filigran kaldırma doğrulanamadı — \(reason)"
+    case .malformedQPDFOutput: return "Could not parse qpdf's JSON output"
+    case .verificationFailed(let reason):
+      return "Watermark removal could not be verified — \(reason)"
     }
   }
 }
@@ -82,11 +83,11 @@ public struct WatermarkCandidate: Sendable, Equatable {
 public struct WatermarkRemoveOperation: PDFOperation {
   public static let identifier = "watermarkremove"
   public let id = WatermarkRemoveOperation.identifier
-  public let title = "Filigran Kaldır"
-  public let subtitle = "Deneysel — tüm sayfalarda tekrarlayan filigran nesnesini siler"
+  public let title = "Remove Watermark"
+  public let subtitle = "Experimental — removes a watermark object that repeats across all pages"
   public let systemImage = "eraser"
-  public let actionTitle = "Filigran Kaldır"
-  public let outputSuffix = "_filigransiz"
+  public let actionTitle = "Remove Watermark"
+  public let outputSuffix = "_clean"
 
   /// Bir Form XObject'in sayfaların EN AZ bu oranında geçmesi "tekrarlayan filigran" adayı
   /// saymak için yeterli sayılır (bkz. yol haritası §1.4 — gerçek kitapta 143/144 ≈ %99,3).
@@ -100,7 +101,7 @@ public struct WatermarkRemoveOperation: PDFOperation {
     // değil (bkz. `TrimOperation` — o da motor kontrolünü `applicability`'ye, gerçek "kesim payı
     // var mı" kontrolünü kendi alanına yapıyor; burada ikisi de `run()` içinde, çünkü ikisi de
     // dosyayı açmayı gerektiriyor).
-    files.isEmpty ? .notApplicable(reason: "Önce PDF ekleyin") : .applicable(fileCount: files.count)
+    files.isEmpty ? .notApplicable(reason: "Add a PDF first") : .applicable(fileCount: files.count)
   }
 
   public func run(
@@ -117,13 +118,13 @@ public struct WatermarkRemoveOperation: PDFOperation {
     }
 
     guard let qpdf = EngineLocator.find("qpdf") else {
-      throw OperationError.engineMissing("qpdf gerekli (pakette bulunamadı)")
+      throw OperationError.engineMissing("qpdf required (not found in the bundle)")
     }
 
     progress(0.05)
     let found = try await Self.candidates(in: file.url, qpdfExecutable: qpdf)
     guard !found.isEmpty else {
-      return .skipped(reason: "Tekrarlayan filigran bulunamadı")
+      return .skipped(reason: "No repeating watermark found")
     }
 
     let chosen: WatermarkCandidate
@@ -162,7 +163,8 @@ public struct WatermarkRemoveOperation: PDFOperation {
         candidate: chosen, output: partial, qpdfExecutable: qpdf)
       guard !stillThere else {
         try? fm.removeItem(at: partial)
-        throw WatermarkRemoveError.verificationFailed(reason: "hedef nesnenin metni hâlâ mevcut")
+        throw WatermarkRemoveError.verificationFailed(
+          reason: "the target object's text is still present")
       }
     } catch let error as WatermarkRemoveError {
       throw error
@@ -182,10 +184,9 @@ public struct WatermarkRemoveOperation: PDFOperation {
     try fm.moveItem(at: partial, to: output)
     progress(1)
 
-    let percentText = String(format: "%.0f", chosen.coveragePercent)
     let textPart = chosen.extractedText.isEmpty ? "" : " '\(chosen.extractedText)'"
     let note =
-      "\(chosen.pageCount)/\(chosen.totalPageCount) sayfada (%\(percentText)) bulunan\(textPart) kaldırıldı"
+      "Removed\(textPart), found on \(chosen.pageCount) of \(chosen.totalPageCount) pages"
     return .produced(urls: [output], note: note)
   }
 
@@ -195,7 +196,7 @@ public struct WatermarkRemoveOperation: PDFOperation {
   /// Form XObject'lerini aday olarak döner. Motor bulunamazsa hata fırlatır.
   public static func candidates(in url: URL) async throws -> [WatermarkCandidate] {
     guard let qpdf = EngineLocator.find("qpdf") else {
-      throw OperationError.engineMissing("qpdf gerekli (pakette bulunamadı)")
+      throw OperationError.engineMissing("qpdf required (not found in the bundle)")
     }
     return try await candidates(in: url, qpdfExecutable: qpdf)
   }

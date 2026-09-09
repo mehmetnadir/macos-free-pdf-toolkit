@@ -136,7 +136,7 @@ final class TrimTests: XCTestCase {
 
     let outcome = try await TrimOperation().run(
       file: info, context: OperationContext(outputDirectory: dir)) { _ in }
-    XCTAssertEqual(outcome, .skipped(reason: "Kesim payı yok"))
+    XCTAssertEqual(outcome, .skipped(reason: "No bleed margin found"))
   }
 
   // MARK: - 3. gs varsa: gerçek kesim + doğrulama .clean
@@ -159,7 +159,7 @@ final class TrimTests: XCTestCase {
     guard case .produced(let outputs, _) = outcome, let output = outputs.first else {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
-    XCTAssertEqual(output.lastPathComponent, "clean-source_kesilmis.pdf")
+    XCTAssertEqual(output.lastPathComponent, "clean-source_trimmed.pdf")
 
     guard let doc = CGPDFDocument(output as CFURL), let page = doc.page(at: 1) else {
       return XCTFail("çıktı açılamadı")

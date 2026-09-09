@@ -67,29 +67,29 @@ public enum WatermarkRemoveVerification {
     source: URL, output: URL, candidate: WatermarkCandidate
   ) -> Result {
     guard let sourceDoc = CGPDFDocument(source as CFURL) else {
-      return Result(verdict: .failed, reason: "kaynak açılamadı")
+      return Result(verdict: .failed, reason: "source could not be opened")
     }
     guard let outputDoc = CGPDFDocument(output as CFURL) else {
-      return Result(verdict: .failed, reason: "çıktı açılamadı")
+      return Result(verdict: .failed, reason: "output could not be opened")
     }
     guard outputDoc.numberOfPages == sourceDoc.numberOfPages else {
       return Result(
         verdict: .failed,
-        reason: "sayfa sayısı değişti (\(sourceDoc.numberOfPages) → \(outputDoc.numberOfPages))")
+        reason: "page count changed (\(sourceDoc.numberOfPages) → \(outputDoc.numberOfPages))")
     }
     guard let sourcePage = sourceDoc.page(at: 1), let outputPage = outputDoc.page(at: 1) else {
-      return Result(verdict: .failed, reason: "ilk sayfa açılamadı")
+      return Result(verdict: .failed, reason: "first page could not be opened")
     }
     guard
       let sourceBitmap = render(sourcePage), let outputBitmap = render(outputPage),
       sourceBitmap.width == outputBitmap.width, sourceBitmap.height == outputBitmap.height
     else {
-      return Result(verdict: .failed, reason: "render edilemedi ya da sayfa boyutları uyuşmuyor")
+      return Result(verdict: .failed, reason: "could not render, or page sizes don't match")
     }
 
     let box = sourcePage.getBoxRect(.mediaBox)
     guard box.width > 0, box.height > 0 else {
-      return Result(verdict: .failed, reason: "sayfa kutusu dejenere")
+      return Result(verdict: .failed, reason: "page box is degenerate")
     }
     let scale = renderDPI / 72.0
 
@@ -113,9 +113,11 @@ public enum WatermarkRemoveVerification {
     let percent = total == 0 ? 0 : Double(diff) / Double(total)
     guard percent < mismatchThreshold else {
       let formatted = String(format: "%.2f", percent * 100)
-      return Result(verdict: .failed, reason: "filigran dışı içerik değişmiş (fark %\(formatted))")
+      return Result(
+        verdict: .failed,
+        reason: "content outside the watermark changed (\(formatted)% difference)")
     }
-    return Result(verdict: .clean, reason: "temiz")
+    return Result(verdict: .clean, reason: "clean")
   }
 
   private struct Bitmap { let data: [UInt8]; let width: Int; let height: Int }

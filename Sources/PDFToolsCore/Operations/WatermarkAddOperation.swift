@@ -38,15 +38,15 @@ import Foundation
 /// Doğrulama motora (burada: kendi çizim kodumuza) da güvenmez — bkz. `WatermarkVerification`:
 /// kaynak ve çıktı sayfası AYNI bölgede render edilip mürekkep oranı kıyaslanır.
 ///
-/// Çıktı soneki `_filigranli`.
+/// Çıktı soneki `_watermarked`.
 public struct WatermarkAddOperation: PDFOperation {
   public static let identifier = "watermarkadd"
   public let id = WatermarkAddOperation.identifier
-  public let title = "Filigran Ekle"
-  public let subtitle = "Her sayfaya serbest metinli bir filigran çizer"
+  public let title = "Add Watermark"
+  public let subtitle = "Draws a custom text watermark on every page"
   public let systemImage = "text.badge.plus"
-  public let actionTitle = "Filigran Ekle"
-  public let outputSuffix = "_filigranli"
+  public let actionTitle = "Add Watermark"
+  public let outputSuffix = "_watermarked"
 
   /// `OperationContext.options` anahtarı: filigrana yazılacak serbest metin — `QRAddOperation`
   /// `contentOptionID`'deki AYNI gerekçeyle bir `OperationOption` DEĞİL (serbest metin, seçim
@@ -70,18 +70,18 @@ public struct WatermarkAddOperation: PDFOperation {
   public var options: [OperationOption] {
     [
       OperationOption(
-        id: Self.positionOptionID, label: "Konum",
-        choices: [("center", "Merkez (çapraz)"), ("header", "Üst bilgi"), ("footer", "Alt bilgi")],
+        id: Self.positionOptionID, label: "Position",
+        choices: [("center", "Center (diagonal)"), ("header", "Header"), ("footer", "Footer")],
         defaultValue: "center"),
       OperationOption(
-        id: Self.opacityOptionID, label: "Opaklık",
-        choices: [("0.15", "%15"), ("0.3", "%30"), ("0.5", "%50")], defaultValue: "0.15"),
+        id: Self.opacityOptionID, label: "Opacity",
+        choices: [("0.15", "15%"), ("0.3", "30%"), ("0.5", "50%")], defaultValue: "0.15"),
       OperationOption(
-        id: Self.fontSizeOptionID, label: "Yazı Boyutu",
+        id: Self.fontSizeOptionID, label: "Font Size",
         choices: [("24", "24 pt"), ("36", "36 pt"), ("48", "48 pt")], defaultValue: "36"),
       OperationOption(
-        id: Self.colorOptionID, label: "Renk",
-        choices: [("gray", "Gri"), ("red", "Kırmızı"), ("blue", "Mavi")], defaultValue: "gray"),
+        id: Self.colorOptionID, label: "Color",
+        choices: [("gray", "Gray"), ("red", "Red"), ("blue", "Blue")], defaultValue: "gray"),
     ]
   }
 
@@ -94,7 +94,7 @@ public struct WatermarkAddOperation: PDFOperation {
     case .passwordRequired: throw OperationError.passwordRequired
     case .restricted, .none: break
     }
-    guard file.pageCount > 0 else { return .skipped(reason: "Sayfa yok") }
+    guard file.pageCount > 0 else { return .skipped(reason: "No pages") }
 
     let text =
       (context.options[Self.textOptionID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -133,7 +133,7 @@ public struct WatermarkAddOperation: PDFOperation {
     // Kanıt 1: sayfa sayısı korunmuş.
     guard let outDoc = CGPDFDocument(partial as CFURL), outDoc.numberOfPages == total else {
       try? fm.removeItem(at: partial)
-      throw WatermarkError.verificationFailed("sayfa sayısı korunmadı")
+      throw WatermarkError.verificationFailed("page count wasn't preserved")
     }
 
     // Kanıt 2: filigran GERÇEKTEN beklenen bölgede mürekkep bırakmış mı — motora (kendi çizim
@@ -147,7 +147,7 @@ public struct WatermarkAddOperation: PDFOperation {
       delta >= WatermarkVerification.minDeltaPercent
     else {
       try? fm.removeItem(at: partial)
-      throw WatermarkError.verificationFailed("filigran beklenen bölgede tespit edilemedi")
+      throw WatermarkError.verificationFailed("watermark wasn't detected in the expected area")
     }
 
     try fm.moveItem(at: partial, to: output)
@@ -165,10 +165,10 @@ public struct WatermarkAddOperation: PDFOperation {
   ) throws {
     var dummyBox = CGRect(x: 0, y: 0, width: 1, height: 1)
     guard let consumer = CGDataConsumer(url: url as CFURL) else {
-      throw WatermarkError.generationFailed("veri tüketicisi oluşturulamadı")
+      throw WatermarkError.generationFailed("could not create the data consumer")
     }
     guard let ctx = CGContext(consumer: consumer, mediaBox: &dummyBox, nil) else {
-      throw WatermarkError.generationFailed("PDF bağlamı oluşturulamadı")
+      throw WatermarkError.generationFailed("could not create the PDF context")
     }
     let color = CGColor(red: rgb.r, green: rgb.g, blue: rgb.b, alpha: opacity)
     let font = CTFontCreateWithName("Helvetica" as CFString, fontSize, nil)
@@ -177,7 +177,7 @@ public struct WatermarkAddOperation: PDFOperation {
     ]
     guard let attrString = CFAttributedStringCreate(nil, text as CFString, attrs as CFDictionary)
     else {
-      throw WatermarkError.generationFailed("metin nesnesi oluşturulamadı")
+      throw WatermarkError.generationFailed("could not create the text object")
     }
     let line = CTLineCreateWithAttributedString(attrString)
     let lineWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
@@ -226,10 +226,10 @@ public enum WatermarkError: Error, LocalizedError, Equatable {
 
   public var errorDescription: String? {
     switch self {
-    case .textRequired: return "Filigran metni girin"
-    case .generationFailed(let detail): return "Filigran üretilemedi — \(detail)"
+    case .textRequired: return "Enter watermark text"
+    case .generationFailed(let detail): return "Could not generate the watermark — \(detail)"
     case .verificationFailed(let detail):
-      return "Filigran doğrulanamadı — \(detail) — çıktı silindi"
+      return "Watermark could not be verified — \(detail) — output deleted"
     }
   }
 }

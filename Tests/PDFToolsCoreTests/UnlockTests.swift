@@ -139,7 +139,7 @@ final class UnlockTests: XCTestCase {
     let dir = try makeTempDirectory()
     let outcome = try await UnlockOperation().run(
       file: PDFFileInfo.inspect(fixture("plain")), context: OperationContext(outputDirectory: dir)) { _ in }
-    XCTAssertEqual(outcome, .skipped(reason: "Zaten kilitsiz"))
+    XCTAssertEqual(outcome, .skipped(reason: "Already unlocked"))
   }
 
   func testOutputNamingAvoidsCollisions() throws {

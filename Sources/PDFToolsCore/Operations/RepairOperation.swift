@@ -5,15 +5,16 @@ import Foundation
 /// bayrağı YOK — teşhis `qpdf --check` ile, onarım ise qpdf'in KENDİSİ `giriş çıkış` biçiminde SADE
 /// bir yeniden yazma sırasında xref tablosunu (ve diğer kurtarılabilir yapısal sorunları) yeniden
 /// kurmasıyla yapılır. Gerçek bir bozuk-xref'li dosyayla ölçülüp doğrulandı: bu sade yeniden yazma
-/// sonrası `qpdf --check` sıfır uyarıya dönüyor (bkz. `RepairVerification`). Çıktı: `<ad>_onarilmis.pdf`.
+/// sonrası `qpdf --check` sıfır uyarıya dönüyor (bkz. `RepairVerification`).
+/// Çıktı: `<ad>_repaired.pdf`.
 public struct RepairOperation: PDFOperation {
   public static let identifier = "repair"
   public let id = RepairOperation.identifier
-  public let title = "Onar"
-  public let subtitle = "Yapısal sorunları teşhis edip yeniden yazarak onarır"
+  public let title = "Repair"
+  public let subtitle = "Diagnoses structural issues and fixes them by rewriting the file"
   public let systemImage = "bandage"
-  public let actionTitle = "Onar"
-  public let outputSuffix = "_onarilmis"
+  public let actionTitle = "Repair"
+  public let outputSuffix = "_repaired"
 
   public init() {}
 
@@ -27,13 +28,13 @@ public struct RepairOperation: PDFOperation {
     case .restricted, .none: break
     }
     guard let qpdf = EngineLocator.find("qpdf") else {
-      throw OperationError.engineMissing("qpdf motoru bulunamadı")
+      throw OperationError.engineMissing("qpdf engine not found")
     }
 
     progress(0)
     let before = try await RepairVerification.diagnose(qpdf: qpdf, url: file.url)
     guard before.hasIssues else {
-      return .skipped(reason: "Dosyada sorun bulunamadı")
+      return .skipped(reason: "No issues found in the file")
     }
     progress(0.2)
 
@@ -61,7 +62,7 @@ public struct RepairOperation: PDFOperation {
 
     guard let doc = CGPDFDocument(partial as CFURL), doc.numberOfPages == file.pageCount else {
       try? fm.removeItem(at: partial)
-      throw RepairError.verificationFailed("sayfa sayısı korunmadı")
+      throw RepairError.verificationFailed("page count wasn't preserved")
     }
 
     // Kanıt: onarım GERÇEKTEN uyarı/hata sayısını azaltmış mı — motorun sessizce başarılı dönmesine
@@ -70,12 +71,13 @@ public struct RepairOperation: PDFOperation {
     guard RepairVerification.improved(before: before, after: after) else {
       try? fm.removeItem(at: partial)
       throw RepairError.verificationFailed(
-        "uyarı/hata sayısı azalmadı (\(before.issueLineCount) → \(after.issueLineCount))")
+        "warning/error count didn't decrease (\(before.issueLineCount) → \(after.issueLineCount))")
     }
 
     try fm.moveItem(at: partial, to: output)
     progress(1)
-    let note = "\(before.issueLineCount) uyarı/hata bulundu, onarım sonrası \(after.issueLineCount) kaldı"
+    let note =
+      "\(before.issueLineCount) warnings/errors found, \(after.issueLineCount) remain after repair"
     return .produced(urls: [output], note: note)
   }
 }
@@ -87,7 +89,7 @@ public enum RepairError: Error, LocalizedError, Equatable {
   public var errorDescription: String? {
     switch self {
     case .verificationFailed(let detail):
-      return "Onarım doğrulanamadı — \(detail) — çıktı silindi"
+      return "Repair could not be verified — \(detail) — output deleted"
     }
   }
 }

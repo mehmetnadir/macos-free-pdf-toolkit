@@ -2,18 +2,18 @@ import CoreGraphics
 import Foundation
 
 /// Tek dosyayı çok dosyaya böler. Motor: qpdf. Üç kip (bkz. `options`):
-/// - "her": her sayfa ayrı dosya (`--split-pages=1`)
+/// - "each": her sayfa ayrı dosya (`--split-pages=1`)
 /// - "n": N sayfalık parçalar (`--split-pages=N`)
-/// - "ikiye": ortadan iki parçaya böler (tek `--pages` aralık çağrısı × 2)
-/// Çıktılar `<ad>_parca/` alt klasörüne yazılır (kaynağın yanına ya da seçilen klasöre).
+/// - "half": ortadan iki parçaya böler (tek `--pages` aralık çağrısı × 2)
+/// Çıktılar `<ad>_parts/` alt klasörüne yazılır (kaynağın yanına ya da seçilen klasöre).
 public struct SplitOperation: PDFOperation {
   public static let identifier = "split"
   public let id = SplitOperation.identifier
-  public let title = "Parçala"
-  public let subtitle = "Dosyayı sayfa gruplarına böler"
+  public let title = "Split"
+  public let subtitle = "Splits the file into page groups"
   public let systemImage = "scissors"
-  public let actionTitle = "Parçala"
-  public let outputSuffix = "_parca"
+  public let actionTitle = "Split"
+  public let outputSuffix = "_parts"
 
   public static let modeOptionID = "mode"
   public static let pageCountOptionID = "n"
@@ -21,12 +21,17 @@ public struct SplitOperation: PDFOperation {
   public var options: [OperationOption] {
     [
       OperationOption(
-        id: Self.modeOptionID, label: "Kip",
-        choices: [("her", "Her sayfa ayrı"), ("n", "N sayfalık parçalar"), ("ikiye", "İkiye böl")],
-        defaultValue: "her"),
+        id: Self.modeOptionID, label: "Mode",
+        choices: [
+          ("each", "Every page separate"), ("n", "N-page chunks"), ("half", "Split in half"),
+        ],
+        defaultValue: "each"),
       OperationOption(
-        id: Self.pageCountOptionID, label: "Parça Boyutu",
-        choices: [("2", "2 sayfa"), ("5", "5 sayfa"), ("10", "10 sayfa"), ("20", "20 sayfa"), ("50", "50 sayfa")],
+        id: Self.pageCountOptionID, label: "Chunk Size",
+        choices: [
+          ("2", "2 pages"), ("5", "5 pages"), ("10", "10 pages"), ("20", "20 pages"),
+          ("50", "50 pages"),
+        ],
         defaultValue: "10"),
     ]
   }
@@ -36,10 +41,10 @@ public struct SplitOperation: PDFOperation {
   /// En az iki sayfalı dosya sayısına bakar (`run()`'daki `file.pageCount > 1` kontrolüyle aynı
   /// eşik — tek sayfalık bir dosya bölünemez).
   public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
-    guard !files.isEmpty else { return .notApplicable(reason: "Önce PDF ekleyin") }
+    guard !files.isEmpty else { return .notApplicable(reason: "Add a PDF first") }
     let eligible = files.filter { $0.pageCount > 1 }.count
     guard eligible > 0 else {
-      return .notApplicable(reason: "Parçalamak için en az iki sayfa gerekli")
+      return .notApplicable(reason: "Needs at least two pages to split")
     }
     return .applicable(fileCount: eligible)
   }
@@ -54,13 +59,13 @@ public struct SplitOperation: PDFOperation {
     case .restricted, .none: break
     }
     guard file.pageCount > 1 else {
-      return .skipped(reason: "Bölünecek yeterli sayfa yok")
+      return .skipped(reason: "Not enough pages to split")
     }
     guard let qpdf = EngineLocator.find("qpdf") else {
-      throw OperationError.engineMissing("qpdf motoru bulunamadı")
+      throw OperationError.engineMissing("qpdf engine not found")
     }
 
-    let mode = context.options[Self.modeOptionID] ?? "her"
+    let mode = context.options[Self.modeOptionID] ?? "each"
     let outputDir = OutputNaming.uniqueDirectory(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
     let partialDir = outputDir.deletingLastPathComponent()
       .appendingPathComponent(".\(outputDir.lastPathComponent).part", isDirectory: true)
@@ -73,7 +78,7 @@ public struct SplitOperation: PDFOperation {
     var outputs: [URL] = []
     do {
       switch mode {
-      case "ikiye":
+      case "half":
         let firstCount = Int((Double(file.pageCount) / 2).rounded(.up))
         let part1 = partialDir.appendingPathComponent("\(stem)-1.pdf")
         let part2 = partialDir.appendingPathComponent("\(stem)-2.pdf")
@@ -87,7 +92,7 @@ public struct SplitOperation: PDFOperation {
         if mode == "n", let parsed = Int(context.options[Self.pageCountOptionID] ?? "") {
           n = max(1, parsed)
         } else {
-          n = 1  // "her" kipi
+          n = 1  // "each" kipi
         }
         let template = partialDir.appendingPathComponent("\(stem).pdf")
         let arguments = ["--split-pages=\(n)", file.url.path, template.path]

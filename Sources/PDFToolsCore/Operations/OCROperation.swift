@@ -7,7 +7,7 @@ import Vision
 /// aktarır. Harici motor YOK, model indirme YOK, API anahtarı YOK. Sayfa sayfa render + tanıma
 /// yapılır — döngü içinde her seferinde TEK sayfalık görüntü bellekte tutulur, bir sonraki sayfaya
 /// geçmeden serbest kalır (bkz. `ImageExportOperation` ile AYNI gerekçe) — 200+ sayfalık bir
-/// kitapta bellek patlamaz. Çıktı: `<ad>_ocr.txt`, sayfalar `--- sayfa N ---` ayracıyla ayrılır.
+/// kitapta bellek patlamaz. Çıktı: `<ad>_ocr.txt`, sayfalar `--- page N ---` ayracıyla ayrılır.
 ///
 /// ÖLÇÜLMÜŞ ZEMİN VE BİLİNEN HATA: bkz. `OCRVerification` dosya üstü yorumu — Türkçede noktalı
 /// büyük İ bazen noktasız I okunuyor. Bu yüzden Türkçe seçiliyken `note`'ta AÇIK bir uyarı var;
@@ -15,10 +15,10 @@ import Vision
 public struct OCROperation: PDFOperation {
   public static let identifier = "ocr"
   public let id = OCROperation.identifier
-  public let title = "OCR ile Metin Çıkar"
-  public let subtitle = "Taranmış sayfaları Vision ile okuyup düz metne çevirir"
+  public let title = "OCR"
+  public let subtitle = "Reads scanned pages with Vision and converts them to plain text"
   public let systemImage = "text.viewfinder"
-  public let actionTitle = "OCR Yap"
+  public let actionTitle = "Run OCR"
 
   public static let languageOptionID = "language"
   public static let dpiOptionID = "dpi"
@@ -31,28 +31,31 @@ public struct OCROperation: PDFOperation {
     "tr": ["tr-TR"], "en": ["en-US"], "auto": ["tr-TR", "en-US"],
   ]
   public static let languageChoices: [(value: String, label: String)] = [
-    ("tr", "Türkçe"), ("en", "İngilizce"), ("auto", "Otomatik (TR + EN)"),
+    ("tr", "Turkish"), ("en", "English"), ("auto", "Automatic (TR + EN)"),
   ]
   public static let dpiChoices: [(value: String, label: String)] = [
-    ("150", "150 dpi"), ("200", "200 dpi"), ("300", "300 dpi"),
+    ("150", "150 dpi — faster"), ("200", "200 dpi — recommended"),
+    ("300", "300 dpi — most accurate"),
   ]
 
   /// `OCRVerification.turkishSupportDegraded` true dönerse gösterilen uyarı — `OCROperation` ve
   /// `SearchablePDFOperation`'IN PAYLAŞTIĞI TEK metin (bkz. dosya üstü CI ölçümü, 2026-09-08).
   public static let turkishSupportWarning =
-    "Bu Mac'te Türkçe dil desteği bulunamadı; metin İngilizce modelle okundu, Türkçe karakterler bozulmuş olabilir."
+    "Turkish language support was not found on this Mac; the text was read with an English "
+    + "model and Turkish characters may be wrong."
 
   public init() {}
 
   public var options: [OperationOption] {
     [
       OperationOption(
-        id: Self.languageOptionID, label: "Dil", choices: Self.languageChoices, defaultValue: "tr"),
+        id: Self.languageOptionID, label: "Language", choices: Self.languageChoices,
+        defaultValue: "tr"),
       OperationOption(
-        id: Self.dpiOptionID, label: "Çözünürlük", choices: Self.dpiChoices, defaultValue: "200"),
+        id: Self.dpiOptionID, label: "Resolution", choices: Self.dpiChoices, defaultValue: "200"),
       OperationOption(
-        id: Self.levelOptionID, label: "Kalite",
-        choices: [("accurate", "Doğru (yavaş)"), ("fast", "Hızlı")], defaultValue: "accurate"),
+        id: Self.levelOptionID, label: "Quality",
+        choices: [("accurate", "Accurate (slower)"), ("fast", "Fast")], defaultValue: "accurate"),
     ]
   }
 
@@ -69,7 +72,7 @@ public struct OCROperation: PDFOperation {
       throw OperationError.unreadable
     }
     let total = document.numberOfPages
-    guard total > 0 else { return .skipped(reason: "Sayfa yok") }
+    guard total > 0 else { return .skipped(reason: "No pages") }
 
     let languageKey = context.options[Self.languageOptionID] ?? "tr"
     let languages = Self.recognitionLanguages[languageKey] ?? Self.recognitionLanguages["tr"]!
@@ -95,7 +98,7 @@ public struct OCROperation: PDFOperation {
     }
 
     guard !confidences.isEmpty else {
-      return .skipped(reason: "Metin tanınamadı (\(total) sayfa tarandı)")
+      return .skipped(reason: "No text recognized (\(total) pages scanned)")
     }
 
     let combined = Self.combine(pageBlocks)
@@ -120,7 +123,7 @@ public struct OCROperation: PDFOperation {
       !written.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     else {
       try? fm.removeItem(at: partial)
-      throw OCRError.verificationFailed("çıktı dosyası boş")
+      throw OCRError.verificationFailed("output file is empty")
     }
 
     try fm.moveItem(at: partial, to: output)
@@ -128,7 +131,7 @@ public struct OCROperation: PDFOperation {
 
     let avgConfidence = confidences.reduce(0, +) / Float(confidences.count)
     var noteParts = [
-      "\(total) sayfa, \(confidences.count) satır, ortalama güven "
+      "\(total) pages, \(confidences.count) lines, average confidence "
         + String(format: "%.2f", avgConfidence)
     ]
     let requestsTurkish = languageKey == "tr" || languageKey == "auto"
@@ -140,15 +143,16 @@ public struct OCROperation: PDFOperation {
         noteParts.append(Self.turkishSupportWarning)
       }
       noteParts.append(
-        "Türkçe metinde büyük İ harfi bazen I olarak okunabilir — kritik metinlerde gözden geçirin.")
+        "In Turkish text, capital İ is sometimes read as I — review critical text carefully.")
     }
     if hasExistingTextLayer {
-      noteParts.append("Bu dosyada zaten metin katmanı var — 'Metni Çıkar' daha doğru sonuç verir.")
+      noteParts.append(
+        "This file already has a text layer — 'Extract Text' gives a more accurate result.")
     }
     return .produced(urls: [output], note: noteParts.joined(separator: " "))
   }
 
-  /// Sayfalar arasına `--- sayfa N ---` ayracı koyar (N: takip eden sayfanın numarası) — görev
+  /// Sayfalar arasına `--- page N ---` ayracı koyar (N: takip eden sayfanın numarası) — görev
   /// tanımındaki sabit biçim, `ExtractTextOperation`'ın "pages" kipiyle BENZER mantık (OCR'da
   /// biçim seçimi YOK, hep ayraçlı).
   static func combine(_ pageTexts: [String]) -> String {
@@ -156,7 +160,7 @@ public struct OCROperation: PDFOperation {
     var parts: [String] = []
     parts.reserveCapacity(pageTexts.count)
     for (index, text) in pageTexts.enumerated() {
-      parts.append("--- sayfa \(index + 1) ---\n\(text)")
+      parts.append("--- page \(index + 1) ---\n\(text)")
     }
     return parts.joined(separator: "\n\n")
   }
@@ -185,7 +189,7 @@ public enum OCRError: Error, LocalizedError, Equatable {
   public var errorDescription: String? {
     switch self {
     case .verificationFailed(let detail):
-      return "OCR çıktısı doğrulanamadı — \(detail) — çıktı silindi"
+      return "OCR output could not be verified — \(detail) — output deleted"
     }
   }
 }

@@ -257,9 +257,9 @@ final class Tur8Tests: XCTestCase {
     guard case .produced(let outputs, let note) = outcome, let output = outputs.first else {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
-    XCTAssertEqual(output.lastPathComponent, "watermarked_filigransiz.pdf")
+    XCTAssertEqual(output.lastPathComponent, "watermarked_clean.pdf")
     XCTAssertNotNil(note)
-    XCTAssertTrue(note?.contains("8/8") ?? false, "beklenen kapsama metni yok: \(note ?? "nil")")
+    XCTAssertTrue(note?.contains("8 of 8") ?? false, "beklenen kapsama metni yok: \(note ?? "nil")")
     XCTAssertTrue(note?.contains(Self.watermarkText) ?? false, "metin `note`'ta yok: \(note ?? "nil")")
 
     guard let doc = CGPDFDocument(output as CFURL) else { return XCTFail("çıktı açılamadı") }
@@ -314,7 +314,7 @@ final class Tur8Tests: XCTestCase {
     let info = PDFFileInfo.inspect(url)
     let outcome = try await WatermarkRemoveOperation().run(
       file: info, context: OperationContext(outputDirectory: dir)) { _ in }
-    XCTAssertEqual(outcome, .skipped(reason: "Tekrarlayan filigran bulunamadı"))
+    XCTAssertEqual(outcome, .skipped(reason: "No repeating watermark found"))
   }
 
   // MARK: - 5. Mutasyon kanıtı: doğrulayıcı "hâlâ orada"yı gerçekten yakalıyor mu

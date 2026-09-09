@@ -165,7 +165,7 @@ final class Tur9Tests: XCTestCase {
 
     let text = try String(contentsOf: output, encoding: .utf8)
     // Kanıt 1: sayfa ayracı var.
-    XCTAssertTrue(text.contains("--- sayfa 1 ---"), "sayfa ayracı yok: \(text)")
+    XCTAssertTrue(text.contains("--- page 1 ---"), "sayfa ayracı yok: \(text)")
     // Kanıt 2: kelimelerin KENDİSİ doğru okunmuş — aksan farkına karşı normalize edilerek (bkz.
     // dosya üstü CI notu: aksanlar bir ortamda düşse bile kelimenin kendisi doğru okunuyor).
     XCTAssertTrue(normalizedTurkishContains(text, "MARŞI"), "MARŞI okunamadı: \(text)")
@@ -176,8 +176,9 @@ final class Tur9Tests: XCTestCase {
       normalizedTurkishContains(text, "İSTİKLAL"), "İSTİKLAL okunamadı: \(text)")
     // Kanıt 3: not, sayfa/satır/güven bilgisi ve Türkçe İ/I uyarısını içeriyor.
     guard let note else { return XCTFail("not boş") }
-    XCTAssertTrue(note.contains("1 sayfa"), "not sayfa sayısını içermiyor: \(note)")
-    XCTAssertTrue(note.localizedCaseInsensitiveContains("güven"), "not güven bilgisi içermiyor: \(note)")
+    XCTAssertTrue(note.contains("1 pages"), "not sayfa sayısını içermiyor: \(note)")
+    XCTAssertTrue(
+      note.localizedCaseInsensitiveContains("confidence"), "not güven bilgisi içermiyor: \(note)")
     XCTAssertTrue(note.contains("İ"), "Türkçe İ/I uyarısı yok: \(note)")
     // Kanıt 4 (tutarlılık): üretim kodunun KENDİ bozukluk teşhisi ile notta gösterilen uyarı
     // birbirini tutmalı — CI'da tr-TR yokken bu testin sessizce yanlış geçmesini önleyen asıl
@@ -255,7 +256,8 @@ final class Tur9Tests: XCTestCase {
     guard case .produced(_, let note) = outcome, let note else {
       return XCTFail("çıktı/not üretilmedi: \(outcome)")
     }
-    XCTAssertTrue(note.contains("zaten metin katmanı var"), "metin katmanı uyarısı yok: \(note)")
+    XCTAssertTrue(
+      note.contains("already has a text layer"), "metin katmanı uyarısı yok: \(note)")
   }
 
   // MARK: - 3. OCR: boş/beyaz sayfada skip + taranan sayfa sayısı
@@ -266,7 +268,7 @@ final class Tur9Tests: XCTestCase {
     Self.makeBlankFixture(pageCount: 3, to: source)
     let outcome = try await OCROperation().run(
       file: PDFFileInfo.inspect(source), context: OperationContext(outputDirectory: dir)) { _ in }
-    XCTAssertEqual(outcome, .skipped(reason: "Metin tanınamadı (3 sayfa tarandı)"))
+    XCTAssertEqual(outcome, .skipped(reason: "No text recognized (3 pages scanned)"))
   }
 
   // MARK: - 4. Aranabilir PDF: PDFKit ile metin çıkarılabiliyor
@@ -284,7 +286,7 @@ final class Tur9Tests: XCTestCase {
     guard case .produced(let outputs, _) = outcome, let output = outputs.first else {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
-    XCTAssertEqual(output.lastPathComponent, "taranmis_aranabilir.pdf")
+    XCTAssertEqual(output.lastPathComponent, "taranmis_searchable.pdf")
 
     // Asıl kanıt: PDFKit ile açılan çıktının 1. sayfasında OCR'ın bulduğu belirgin bir kelime
     // GERÇEKTEN var (`page.string` ile — annotation/metadata değil, gerçek metin içeriği). Aksana

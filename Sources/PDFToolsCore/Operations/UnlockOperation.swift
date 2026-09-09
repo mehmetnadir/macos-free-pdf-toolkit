@@ -5,10 +5,10 @@ import Foundation
 public struct UnlockOperation: PDFOperation {
   public static let identifier = "unlock"
   public let id = UnlockOperation.identifier
-  public let title = "Kilit Aç"
-  public let subtitle = "Şifreyi ve kopyalama/yazdırma kısıtlamalarını kaldırır"
+  public let title = "Unlock"
+  public let subtitle = "Removes the password and any copy/print restrictions"
   public let systemImage = "lock.open"
-  public let actionTitle = "Kilidi Aç"
+  public let actionTitle = "Unlock"
   public let outputSuffix = "_unlocked"
 
   public init() {}
@@ -16,10 +16,10 @@ public struct UnlockOperation: PDFOperation {
   /// Kilitli/kısıtlı dosya sayısına bakar (`.restricted`/`.passwordRequired`) — zaten kilitsiz
   /// dosyalar için "Kilit Aç" göstermenin anlamı yok (bkz. kullanıcı geri bildirimi, Tur 3).
   public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
-    guard !files.isEmpty else { return .notApplicable(reason: "Önce PDF ekleyin") }
+    guard !files.isEmpty else { return .notApplicable(reason: "Add a PDF first") }
     let lockedCount = files.filter { $0.lockState == .restricted || $0.lockState == .passwordRequired }
       .count
-    guard lockedCount > 0 else { return .notApplicable(reason: "Dosyalar zaten şifresiz") }
+    guard lockedCount > 0 else { return .notApplicable(reason: "Files are already unlocked") }
     return .applicable(fileCount: lockedCount)
   }
 
@@ -31,7 +31,7 @@ public struct UnlockOperation: PDFOperation {
     case .unreadable:
       throw OperationError.unreadable
     case .none:
-      return .skipped(reason: "Zaten kilitsiz")
+      return .skipped(reason: "Already unlocked")
     case .passwordRequired where (context.password ?? "").isEmpty:
       throw OperationError.passwordRequired
     case .restricted, .passwordRequired:

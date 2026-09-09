@@ -4,15 +4,15 @@ import Foundation
 /// PDF'i "Hızlı Web Görünümü" (linearized) biçimine dönüştürür: sayfalar internet üzerinden parça
 /// parça indirilip açılabilir hale gelir — büyük ders kitaplarının tarayıcıda ilk sayfayı beklemeden
 /// göstermesi için önemlidir. Motor: yalnız qpdf, `--linearize giriş çıkış` (gerçek komut çalıştırılıp
-/// doğrulandı — bkz. `LinearizeVerification`). Çıktı: `<ad>_hizli.pdf`.
+/// doğrulandı — bkz. `LinearizeVerification`). Çıktı: `<ad>_web.pdf`.
 public struct LinearizeOperation: PDFOperation {
   public static let identifier = "linearize"
   public let id = LinearizeOperation.identifier
-  public let title = "Hızlı Görünüm İçin Hazırla"
-  public let subtitle = "Sayfaların internette parça parça açılabilmesi için PDF'i yeniden düzenler"
+  public let title = "Optimize for Web"
+  public let subtitle = "Reorganizes the PDF so pages can load progressively over the web"
   public let systemImage = "bolt"
-  public let actionTitle = "Hazırla"
-  public let outputSuffix = "_hizli"
+  public let actionTitle = "Optimize for Web"
+  public let outputSuffix = "_web"
 
   public init() {}
 
@@ -25,9 +25,9 @@ public struct LinearizeOperation: PDFOperation {
   /// olmadan bile) "muhtemelen zaten hazır" sinyali verir. Kesin doğrulama yine `run()` sonrası
   /// `LinearizeVerification` ile yapılır; bu yalnızca kart görünümü/öneri içindir.
   public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
-    guard !files.isEmpty else { return .notApplicable(reason: "Önce PDF ekleyin") }
+    guard !files.isEmpty else { return .notApplicable(reason: "Add a PDF first") }
     let eligible = files.filter { !Self.looksAlreadyLinearized($0.url) }.count
-    guard eligible > 0 else { return .notApplicable(reason: "Zaten hızlı görünüme hazır") }
+    guard eligible > 0 else { return .notApplicable(reason: "Already optimized for web") }
     return .applicable(fileCount: eligible)
   }
 
@@ -50,7 +50,7 @@ public struct LinearizeOperation: PDFOperation {
     case .restricted, .none: break
     }
     guard let qpdf = EngineLocator.find("qpdf") else {
-      throw OperationError.engineMissing("qpdf motoru bulunamadı")
+      throw OperationError.engineMissing("qpdf engine not found")
     }
 
     let output = OutputNaming.uniqueURL(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
@@ -78,7 +78,7 @@ public struct LinearizeOperation: PDFOperation {
     // Kanıt 1: sayfa sayısı korunmuş mu.
     guard let doc = CGPDFDocument(partial as CFURL), doc.numberOfPages == file.pageCount else {
       try? fm.removeItem(at: partial)
-      throw LinearizeError.verificationFailed("sayfa sayısı korunmadı")
+      throw LinearizeError.verificationFailed("page count wasn't preserved")
     }
     progress(0.85)
 
@@ -87,7 +87,7 @@ public struct LinearizeOperation: PDFOperation {
     let diagnosis = try await LinearizeVerification.diagnose(qpdf: qpdf, url: partial)
     guard diagnosis.isLinearized else {
       try? fm.removeItem(at: partial)
-      throw LinearizeError.verificationFailed("qpdf --check lineerleştirilmiş demiyor")
+      throw LinearizeError.verificationFailed("qpdf --check didn't report the file as linearized")
     }
 
     try fm.moveItem(at: partial, to: output)
@@ -103,7 +103,7 @@ public enum LinearizeError: Error, LocalizedError, Equatable {
   public var errorDescription: String? {
     switch self {
     case .verificationFailed(let detail):
-      return "Hızlı görünüm doğrulanamadı — \(detail) — çıktı silindi"
+      return "Web optimization could not be verified — \(detail) — output deleted"
     }
   }
 }

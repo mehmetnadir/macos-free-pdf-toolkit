@@ -29,15 +29,15 @@ import Foundation
 /// Doğrulama: sayfa sayısı korunur VE PDFKit ile metin GERİ OKUNUP beklenen numaranın GERÇEKTEN
 /// geçtiği (ya da kapak sayfasında HİÇ numara olmadığı) doğrulanır — bkz. `PageNumberVerification`.
 ///
-/// Çıktı soneki `_numarali`.
+/// Çıktı soneki `_numbered`.
 public struct PageNumberOperation: PDFOperation {
   public static let identifier = "pagenumber"
   public let id = PageNumberOperation.identifier
-  public let title = "Sayfa Numarası Ekle"
-  public let subtitle = "Her sayfaya (isteğe bağlı kapak hariç) sayfa numarası çizer"
+  public let title = "Add Page Numbers"
+  public let subtitle = "Draws a page number on every page (optionally excluding the cover)"
   public let systemImage = "list.number"
-  public let actionTitle = "Numara Ekle"
-  public let outputSuffix = "_numarali"
+  public let actionTitle = "Add Page Numbers"
+  public let outputSuffix = "_numbered"
 
   public static let positionOptionID = "position"
   public static let startAtOptionID = "startAt"
@@ -53,16 +53,17 @@ public struct PageNumberOperation: PDFOperation {
   public var options: [OperationOption] {
     [
       OperationOption(
-        id: Self.positionOptionID, label: "Konum",
+        id: Self.positionOptionID, label: "Position",
         choices: [
-          ("footer-center", "Alt orta"), ("footer-right", "Alt sağ"), ("footer-left", "Alt sol"),
-          ("header-center", "Üst orta"), ("header-right", "Üst sağ"),
+          ("footer-center", "Bottom center"), ("footer-right", "Bottom right"),
+          ("footer-left", "Bottom left"),
+          ("header-center", "Top center"), ("header-right", "Top right"),
         ], defaultValue: "footer-center"),
       OperationOption(
-        id: Self.startAtOptionID, label: "Başlangıç",
-        choices: [("1", "1'den (kapak dahil)"), ("0", "Kapak sayılmaz")], defaultValue: "1"),
+        id: Self.startAtOptionID, label: "Start",
+        choices: [("1", "From 1 (cover included)"), ("0", "Cover not counted")], defaultValue: "1"),
       OperationOption(
-        id: Self.formatOptionID, label: "Biçim",
+        id: Self.formatOptionID, label: "Format",
         choices: [("plain", "5"), ("ofN", "5 / 120")], defaultValue: "ofN"),
     ]
   }
@@ -76,7 +77,7 @@ public struct PageNumberOperation: PDFOperation {
     case .passwordRequired: throw OperationError.passwordRequired
     case .restricted, .none: break
     }
-    guard file.pageCount > 0 else { return .skipped(reason: "Sayfa yok") }
+    guard file.pageCount > 0 else { return .skipped(reason: "No pages") }
 
     let position = context.options[Self.positionOptionID] ?? "footer-center"
     let startAt = context.options[Self.startAtOptionID] ?? "1"
@@ -109,7 +110,7 @@ public struct PageNumberOperation: PDFOperation {
     // Kanıt 1: sayfa sayısı korunmuş.
     guard let outDoc = CGPDFDocument(partial as CFURL), outDoc.numberOfPages == total else {
       try? fm.removeItem(at: partial)
-      throw PageNumberError.verificationFailed("sayfa sayısı korunmadı")
+      throw PageNumberError.verificationFailed("page count wasn't preserved")
     }
 
     // Kanıt 2: PDFKit ile metin GERİ OKUNUP beklenen numaranın GERÇEKTEN geçtiği doğrulanır —
@@ -123,11 +124,12 @@ public struct PageNumberOperation: PDFOperation {
           pdfAt: partial, pageIndex: pageIndex, total: total, startAt: startAt, format: format)
       else {
         try? fm.removeItem(at: partial)
-        throw PageNumberError.verificationFailed("sayfa \(pageIndex) okunamadı")
+        throw PageNumberError.verificationFailed("page \(pageIndex) could not be read")
       }
       guard ok else {
         try? fm.removeItem(at: partial)
-        throw PageNumberError.verificationFailed("sayfa \(pageIndex) beklenen numarayı içermiyor")
+        throw PageNumberError.verificationFailed(
+          "page \(pageIndex) doesn't contain the expected number")
       }
     }
 
@@ -145,10 +147,10 @@ public struct PageNumberOperation: PDFOperation {
   ) throws {
     var dummyBox = CGRect(x: 0, y: 0, width: 1, height: 1)
     guard let consumer = CGDataConsumer(url: url as CFURL) else {
-      throw PageNumberError.generationFailed("veri tüketicisi oluşturulamadı")
+      throw PageNumberError.generationFailed("could not create the data consumer")
     }
     guard let ctx = CGContext(consumer: consumer, mediaBox: &dummyBox, nil) else {
-      throw PageNumberError.generationFailed("PDF bağlamı oluşturulamadı")
+      throw PageNumberError.generationFailed("could not create the PDF context")
     }
     let font = CTFontCreateWithName("Helvetica" as CFString, fontSize, nil)
     let color = CGColor(gray: 0.15, alpha: 1)
@@ -172,7 +174,7 @@ public struct PageNumberOperation: PDFOperation {
         guard
           let attrString = CFAttributedStringCreate(nil, text as CFString, attrs as CFDictionary)
         else {
-          throw PageNumberError.generationFailed("metin nesnesi oluşturulamadı")
+          throw PageNumberError.generationFailed("could not create the text object")
         }
         let line = CTLineCreateWithAttributedString(attrString)
         let lineWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
@@ -209,9 +211,9 @@ public enum PageNumberError: Error, LocalizedError, Equatable {
 
   public var errorDescription: String? {
     switch self {
-    case .generationFailed(let detail): return "Sayfa numarası üretilemedi — \(detail)"
+    case .generationFailed(let detail): return "Could not generate the page number — \(detail)"
     case .verificationFailed(let detail):
-      return "Sayfa numarası doğrulanamadı — \(detail) — çıktı silindi"
+      return "Page number could not be verified — \(detail) — output deleted"
     }
   }
 }

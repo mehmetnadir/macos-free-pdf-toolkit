@@ -17,10 +17,10 @@ import Foundation
 public struct QRExtractOperation: PDFOperation {
   public static let identifier = "qrextract"
   public let id = QRExtractOperation.identifier
-  public let title = "QR Ayıkla"
-  public let subtitle = "Sayfalardaki QR kodlarını listeler ve bir metin dosyasına yazar"
+  public let title = "Extract QR"
+  public let subtitle = "Lists the QR codes on the pages and writes them to a text file"
   public let systemImage = "qrcode.viewfinder"
-  public let actionTitle = "QR Ayıkla"
+  public let actionTitle = "Extract QR"
 
   public static let dpiOptionID = "dpi"
 
@@ -29,8 +29,11 @@ public struct QRExtractOperation: PDFOperation {
   public var options: [OperationOption] {
     [
       OperationOption(
-        id: Self.dpiOptionID, label: "Çözünürlük",
-        choices: [("150", "150 dpi"), ("200", "200 dpi"), ("300", "300 dpi")],
+        id: Self.dpiOptionID, label: "Resolution",
+        choices: [
+          ("150", "150 dpi — faster"), ("200", "200 dpi — recommended"),
+          ("300", "300 dpi — most accurate"),
+        ],
         defaultValue: "200"),
     ]
   }
@@ -45,7 +48,7 @@ public struct QRExtractOperation: PDFOperation {
     case .restricted, .none: break
     }
     guard file.pageCount > 0 else {
-      return .skipped(reason: "Sayfa yok (0 sayfa tarandı)")
+      return .skipped(reason: "No pages (0 pages scanned)")
     }
 
     let dpi = CGFloat(Double(context.options[Self.dpiOptionID] ?? "200") ?? 200)
@@ -68,7 +71,7 @@ public struct QRExtractOperation: PDFOperation {
     }
 
     guard found > 0 else {
-      return .skipped(reason: "QR bulunamadı (\(total) sayfa tarandı)")
+      return .skipped(reason: "No QR codes found (\(total) pages scanned)")
     }
 
     let output = Self.uniqueTextOutputURL(for: file.url, in: context.outputDirectory)
@@ -78,7 +81,7 @@ public struct QRExtractOperation: PDFOperation {
     }
     try data.write(to: output, options: .atomic)
     progress(1)
-    return .produced(urls: [output], note: "\(total) sayfada \(found) QR bulundu")
+    return .produced(urls: [output], note: "Found \(found) QR codes across \(total) pages")
   }
 
   /// `<ad>_qr.txt` biçiminde, çakışmaya karşı korumalı bir çıktı yolu üretir.

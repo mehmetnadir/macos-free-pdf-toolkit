@@ -28,7 +28,7 @@ public enum EncryptVerification {
     }
 
     guard let wrongAttempt = CGPDFDocument(url as CFURL) else { return false }
-    let wrongUnlocked = wrongAttempt.unlockWithPassword(userPassword + "-yanlis-deneme")
+    let wrongUnlocked = wrongAttempt.unlockWithPassword(userPassword + "-wrong-attempt")
     guard !wrongUnlocked else { return false }
 
     return true

@@ -72,7 +72,7 @@ final class Tur7Tests: XCTestCase {
     guard case .produced(let outputs, _) = outcome, let output = outputs.first else {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
-    XCTAssertEqual(output.lastPathComponent, "kitap_filigranli.pdf")
+    XCTAssertEqual(output.lastPathComponent, "kitap_watermarked.pdf")
 
     // Kanıt 1: sayfa sayısı korunmuş.
     guard let doc = CGPDFDocument(output as CFURL) else { return XCTFail("çıktı okunamadı") }
@@ -123,7 +123,7 @@ final class Tur7Tests: XCTestCase {
     guard case .produced(let outputs, _) = outcome, let output = outputs.first else {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
-    XCTAssertEqual(output.lastPathComponent, "kitap_numarali.pdf")
+    XCTAssertEqual(output.lastPathComponent, "kitap_numbered.pdf")
 
     // BAĞIMSIZ doğrulama: `PageNumberVerification` KULLANILMADAN, doğrudan PDFKit ile — çizim
     // kodunun ürettiği ile aynı formülü paylaşan bir yardımcıya değil, testin KENDİ literal
@@ -195,8 +195,8 @@ final class Tur7Tests: XCTestCase {
     guard case .produced(let outputs, let note) = outcome, let output = outputs.first else {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
-    XCTAssertEqual(output.lastPathComponent, "yerimli-kaynak_yerimleri.json")
-    XCTAssertEqual(note, "3 yer imi dışa aktarıldı")
+    XCTAssertEqual(output.lastPathComponent, "yerimli-kaynak_bookmarks.json")
+    XCTAssertEqual(note, "Exported 3 bookmarks")
 
     // BAĞIMSIZ kanıt: JSON'u testin KENDİSİ ayrıştırıp sayıyor (üretim kodundaki sayaçla AYNI türü
     // (`BookmarkFile`) kullanır ama üretim kodunun `run()`'ı ÇAĞRILMADAN, doğrudan diskten okunur).
@@ -226,8 +226,8 @@ final class Tur7Tests: XCTestCase {
     guard case .produced(let outputs, let note) = outcome, let output = outputs.first else {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
-    XCTAssertEqual(output.lastPathComponent, "duz_yerimli.pdf")
-    XCTAssertEqual(note, "2 yer imi uygulandı")
+    XCTAssertEqual(output.lastPathComponent, "duz_bookmarked.pdf")
+    XCTAssertEqual(note, "Applied 2 bookmarks")
 
     // BAĞIMSIZ kanıt: sayfa sayısı korunmuş VE PDFKit `outlineRoot` üzerinden GERÇEK anahat sayısı.
     guard let doc = CGPDFDocument(output as CFURL) else { return XCTFail("çıktı okunamadı") }
@@ -243,7 +243,7 @@ final class Tur7Tests: XCTestCase {
     Self.makeMultiPageFixture(pageCount: 2, to: source)
     let outcome = try await BookmarkOperation().run(
       file: PDFFileInfo.inspect(source), context: OperationContext(outputDirectory: dir)) { _ in }
-    XCTAssertEqual(outcome, .skipped(reason: "Yer imi yok"))
+    XCTAssertEqual(outcome, .skipped(reason: "No bookmarks"))
     // Yarım/artık dosya kalmamalı.
     let leftovers = try FileManager.default.contentsOfDirectory(atPath: dir.path)
     XCTAssertEqual(leftovers, ["duz.pdf"], "artık dosya kaldı: \(leftovers)")

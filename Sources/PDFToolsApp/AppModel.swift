@@ -89,9 +89,9 @@ final class AppModel {
     return hasEngine
   }
   var missingEngineMessage: String {
-    if isTrimSelected { return "Ghostscript gerekli — brew install ghostscript" }
-    if requiresQPDFOnly { return "qpdf motoru bulunamadı" }
-    return "PDF motoru bulunamadı"
+    if isTrimSelected { return "Ghostscript required — brew install ghostscript" }
+    if requiresQPDFOnly { return "qpdf engine not found" }
+    return "No PDF engine found"
   }
   /// Şifre alanı yalnızca Kilit Aç için anlamlı; diğer işlemler şifre kabul etmiyor.
   var needsPassword: Bool {
@@ -112,18 +112,19 @@ final class AppModel {
   /// yazılır (bkz. görev tanımı, Tur 3). Dosya yoksa `nil` (satır hiç gösterilmez).
   var analysisSummary: String? {
     guard !items.isEmpty else { return nil }
-    var parts = ["\(items.count) dosya"]
+    var parts = [counted(items.count, "file")]
     let totalPages = items.reduce(0) { $0 + $1.info.pageCount }
-    if totalPages > 0 { parts.append("\(totalPages) sayfa") }
+    if totalPages > 0 { parts.append(counted(totalPages, "page")) }
     let lockedCount = items.filter {
       $0.info.lockState == .restricted || $0.info.lockState == .passwordRequired
     }.count
-    if lockedCount > 0 { parts.append("\(lockedCount) şifreli") }
+    if lockedCount > 0 { parts.append("\(lockedCount) encrypted") }
     let bleedItems = items.filter { $0.info.hasBleed }
     if !bleedItems.isEmpty, let inset = bleedItems.first?.info.bleedInsetPoints {
       let mm = Double(inset) / 72 * 25.4
-      let formatted = mm.formatted(.number.precision(.fractionLength(0)))
-      parts.append("\(bleedItems.count) dosyada \(formatted) mm kesim payı")
+      let formatted = mm.formatted(
+        .number.precision(.fractionLength(0)).locale(Locale(identifier: "en_US")))
+      parts.append("\(formatted) mm bleed on \(counted(bleedItems.count, "file"))")
     }
     return parts.joined(separator: " · ")
   }
@@ -132,8 +133,8 @@ final class AppModel {
     let done = items.filter { $0.status.isDone }.count
     let failed = items.filter { $0.status.isFailed }.count
     guard done + failed > 0 else { return nil }
-    var parts = ["\(done) tamam"]
-    if failed > 0 { parts.append("\(failed) hata") }
+    var parts = ["\(done) done"]
+    if failed > 0 { parts.append("\(failed) failed") }
     return parts.joined(separator: " · ")
   }
 
@@ -202,8 +203,8 @@ final class AppModel {
     panel.allowedContentTypes = [.pdf]
     panel.allowsMultipleSelection = true
     panel.canChooseDirectories = true
-    panel.message = "PDF dosyalarını ya da klasörleri seç"
-    panel.prompt = "Ekle"
+    panel.message = "Choose PDF files or folders"
+    panel.prompt = "Add"
     guard panel.runModal() == .OK else { return }
     let urls = panel.urls
     Task { await add(urls: urls) }
@@ -269,7 +270,7 @@ final class AppModel {
             }
             let mergedName = urls.first?.lastPathComponent ?? ""
             for id in pendingIDs.dropFirst() {
-              update(id, .skipped("birleştirildi → \(mergedName)"))
+              update(id, .skipped("merged → \(mergedName)"))
             }
           case .skipped(let reason):
             for id in pendingIDs { update(id, .skipped(reason)) }
@@ -303,7 +304,7 @@ final class AppModel {
   func applyPageEdit(targetID: FileItem.ID, pageOrder: String, rotations: String) {
     guard !isRunning, let info = items.first(where: { $0.id == targetID })?.info else { return }
     let otherPendingIDs = items.filter { $0.status.isPending && $0.id != targetID }.map(\.id)
-    for id in otherPendingIDs { update(id, .skipped("sayfa düzenleme tek dosyada çalışır")) }
+    for id in otherPendingIDs { update(id, .skipped("page editing works on a single file")) }
 
     var options: [String: String] = [PageEditOperation.pageOrderOptionID: pageOrder]
     if !rotations.isEmpty { options[PageEditOperation.rotationsOptionID] = rotations }

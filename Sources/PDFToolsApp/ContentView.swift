@@ -61,14 +61,14 @@ struct ContentView: View {
         )
       }
     }
-    .navigationTitle("PDF Araçları")
+    .navigationTitle("PDF Tools")
     .toolbar {
       ToolbarItemGroup(placement: .primaryAction) {
-        Button { model.pickFiles() } label: { Label("Ekle", systemImage: "plus") }
-          .help("PDF ekle (⌘O)")
+        Button { model.pickFiles() } label: { Label("Add", systemImage: "plus") }
+          .help("Add PDF (⌘O)")
           .disabled(model.isRunning)
-        Button { model.clear() } label: { Label("Temizle", systemImage: "trash") }
-          .help("Listeyi temizle")
+        Button { model.clear() } label: { Label("Clear", systemImage: "trash") }
+          .help("Clear the list")
           .disabled(model.items.isEmpty || model.isRunning)
       }
     }
@@ -86,12 +86,12 @@ struct DropZoneView: View {
       Image(systemName: "arrow.down.doc")
         .font(.system(size: 52, weight: .light))
         .foregroundStyle(isTargeted ? Color.accentColor : .secondary)
-      Text("PDF dosyalarını buraya sürükle")
+      Text("Drop PDF files here")
         .font(.title3.weight(.medium))
-      Text("Tek dosya, birden çok dosya ya da klasör")
+      Text("One file, several files, or a folder")
         .font(.callout)
         .foregroundStyle(.secondary)
-      Button("Dosya Seç…", action: onPick)
+      Button("Choose Files…", action: onPick)
         .controlSize(.large)
         .padding(.top, 6)
       capabilitiesList
@@ -141,14 +141,14 @@ struct FileListView: View {
       ForEach(model.items) { item in
         FileRowView(item: item)
           .contextMenu {
-            Button("Finder'da Göster") { model.reveal(item.info.url) }
+            Button("Show in Finder") { model.reveal(item.info.url) }
             if case .done(let urls, _) = item.status, let first = urls.first {
-              Button(urls.count > 1 ? "Çıktıları Finder'da Göster" : "Çıktıyı Finder'da Göster") {
+              Button(urls.count > 1 ? "Show Outputs in Finder" : "Show Output in Finder") {
                 model.reveal(first)
               }
             }
             Divider()
-            Button("Listeden Kaldır", role: .destructive) { model.remove(item.id) }
+            Button("Remove from List", role: .destructive) { model.remove(item.id) }
               .disabled(model.isRunning)
           }
       }
@@ -192,7 +192,7 @@ struct FileRowView: View {
 
   private var detailLine: String {
     var parts = [ByteCountFormatter.string(fromByteCount: item.info.fileSize, countStyle: .file)]
-    if item.info.pageCount > 0 { parts.append("\(item.info.pageCount) sayfa") }
+    if item.info.pageCount > 0 { parts.append(counted(item.info.pageCount, "page")) }
     // Seçili işlem neyse onun karar verdiği bilgiyi göster: kilit açmada kilit durumu,
     // kesimde kesim payı. Kullanıcı listeye bakıp işlemin ne yapacağını görebilmeli.
     parts.append(isTrim ? bleedLabel : item.info.lockState.label)
@@ -212,18 +212,19 @@ struct FileRowView: View {
 
   /// Kesim payı özeti: kesilmiş ölçü + kenar payı, milimetre cinsinden.
   private var bleedLabel: String {
-    guard let trim = item.info.trimBox else { return "Kesim payı yok" }
+    guard let trim = item.info.trimBox else { return "No bleed" }
     let media = item.info.mediaBox
     let inset = max(
       trim.minX - media.minX, trim.minY - media.minY,
       media.maxX - trim.maxX, media.maxY - trim.maxY)
-    // Ondalık ayırıcı sistem diline uymalı: Türkçede "3,0 mm", "3.0 mm" değil.
+    // Ondalık ayırıcı her zaman nokta olmalı: uygulama dili İngilizce, yerel ayara bağlı kalma.
     func mm(_ points: CGFloat, decimals: Int) -> String {
       let value = Double(points) / 72 * 25.4
-      return value.formatted(.number.precision(.fractionLength(decimals)))
+      return value.formatted(
+        .number.precision(.fractionLength(decimals)).locale(Locale(identifier: "en_US")))
     }
     return "\(mm(trim.width, decimals: 0)) × \(mm(trim.height, decimals: 0)) mm"
-      + " · \(mm(inset, decimals: 1)) mm kesim payı"
+      + " · \(mm(inset, decimals: 1)) mm bleed"
   }
 }
 
@@ -269,7 +270,7 @@ struct StatusView: View {
       HStack(spacing: 8) {
         if let fraction {
           ProgressView(value: fraction).frame(width: 90)
-          Text("%\(Int(fraction * 100))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+          Text("\(Int(fraction * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         } else {
           ProgressView().controlSize(.small)
         }
@@ -280,8 +281,8 @@ struct StatusView: View {
         if let note {
           Text(note).font(.caption).foregroundStyle(.secondary)
         }
-        // Tek çıktı → "Göster"; birden çok → "N dosya · Göster" (Finder'da ilk dosya seçilir).
-        Button(urls.count > 1 ? "\(urls.count) dosya · Göster" : "Göster") {
+        // Tek çıktı → "Show"; birden çok → "N files · Show" (Finder'da ilk dosya seçilir).
+        Button(urls.count > 1 ? "\(counted(urls.count, "file")) · Show" : "Show") {
           if let first = urls.first { reveal(first) }
         }
         .buttonStyle(.link)
@@ -350,11 +351,11 @@ struct ActionCardsView: View {
     case .applicable(let count):
       switch operation.id {
       case MergeOperation.identifier:
-        return "\(count) dosyayı birleştirir"
+        return "Merges \(counted(count, "file"))"
       case PageEditOperation.identifier:
-        return "Sayfa düzenleme tek dosyada çalışır — ilk dosya kullanılacak"
+        return "Page editing works on a single file — the first file will be used"
       default:
-        return "\(count) dosyada"
+        return "on \(counted(count, "file"))"
       }
     }
   }
@@ -418,7 +419,7 @@ struct OperationOptionsRow: View {
     if model.needsPassword || !options.isEmpty {
       HStack(spacing: 12) {
         if model.needsPassword {
-          SecureField("Şifre", text: $model.password)
+          SecureField("Password", text: $model.password)
             .textFieldStyle(.roundedBorder)
             .frame(width: 150)
             .disabled(model.isRunning)
@@ -451,7 +452,7 @@ struct ActionBar: View {
       statusView
       Spacer()
       if model.isRunning {
-        Button("Durdur") { model.cancel() }
+        Button("Stop") { model.cancel() }
           .keyboardShortcut(.cancelAction)
       } else {
         Button(model.operation.actionTitle) { runOrOpenPageGrid() }

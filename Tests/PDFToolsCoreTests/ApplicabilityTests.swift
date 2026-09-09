@@ -25,7 +25,7 @@ final class ApplicabilityTests: XCTestCase {
     let files = [dummyFile(lockState: .none), dummyFile(lockState: .none)]
     XCTAssertEqual(
       UnlockOperation().applicability(for: files),
-      .notApplicable(reason: "Dosyalar zaten şifresiz"))
+      .notApplicable(reason: "Files are already unlocked"))
   }
 
   func testUnlockApplicableCountsOnlyLockedFiles() {
@@ -40,9 +40,10 @@ final class ApplicabilityTests: XCTestCase {
 
   func testTrimNotApplicableWhenNoBleed() {
     let files = [dummyFile(trimBox: nil)]
-    // Motor kurulu olsa da olmasa da: kesim payı hiç yoksa mesaj HEP "Kesim payı yok" olmalı
+    // Motor kurulu olsa da olmasa da: kesim payı hiç yoksa mesaj HEP "No bleed margin found" olmalı
     // (bkz. TrimOperation.applicability yorumu — sıra bilerek böyle, CI'da gs olmadan da geçerli).
-    XCTAssertEqual(TrimOperation().applicability(for: files), .notApplicable(reason: "Kesim payı yok"))
+    XCTAssertEqual(
+      TrimOperation().applicability(for: files), .notApplicable(reason: "No bleed margin found"))
   }
 
   func testTrimApplicableWhenBleedPresentAndEngineInstalled() throws {
@@ -59,7 +60,7 @@ final class ApplicabilityTests: XCTestCase {
   func testMergeNotApplicableWithSingleFile() {
     XCTAssertEqual(
       MergeOperation().applicability(for: [dummyFile()]),
-      .notApplicable(reason: "Birleştirmek için en az iki dosya gerekli"))
+      .notApplicable(reason: "Needs at least two files to merge"))
   }
 
   func testMergeApplicableWithTwoFiles() {
@@ -72,7 +73,7 @@ final class ApplicabilityTests: XCTestCase {
   func testSplitNotApplicableWithSinglePageFile() {
     XCTAssertEqual(
       SplitOperation().applicability(for: [dummyFile(pageCount: 1)]),
-      .notApplicable(reason: "Parçalamak için en az iki sayfa gerekli"))
+      .notApplicable(reason: "Needs at least two pages to split"))
   }
 
   func testSplitApplicableWithMultiPageFile() {
@@ -87,7 +88,7 @@ final class ApplicabilityTests: XCTestCase {
       guard case .notApplicable(let reason) = operation.applicability(for: []) else {
         return XCTFail("\(operation.title) boş listede applicable döndü")
       }
-      XCTAssertEqual(reason, "Önce PDF ekleyin", "\(operation.title) için beklenmeyen gerekçe")
+      XCTAssertEqual(reason, "Add a PDF first", "\(operation.title) için beklenmeyen gerekçe")
     }
     XCTAssertNil(OperationRegistry.suggested(for: []))
   }

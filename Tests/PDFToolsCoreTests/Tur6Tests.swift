@@ -153,7 +153,7 @@ final class Tur6Tests: XCTestCase {
     guard case .produced(let outputs, _) = outcome, let output = outputs.first else {
       return XCTFail("çıktı üretilmedi: \(outcome)")
     }
-    XCTAssertEqual(output.lastPathComponent, "kitap_hizli.pdf")
+    XCTAssertEqual(output.lastPathComponent, "kitap_web.pdf")
 
     // Kanıt 1: sayfa sayısı korunmuş.
     guard let doc = CGPDFDocument(output as CFURL) else { return XCTFail("çıktı açılamadı") }
@@ -178,7 +178,7 @@ final class Tur6Tests: XCTestCase {
     Self.makeMultiPageFixture(pageCount: 2, to: source)
     let outcome = try await RepairOperation().run(
       file: PDFFileInfo.inspect(source), context: OperationContext(outputDirectory: dir)) { _ in }
-    XCTAssertEqual(outcome, .skipped(reason: "Dosyada sorun bulunamadı"))
+    XCTAssertEqual(outcome, .skipped(reason: "No issues found in the file"))
   }
 
   func testRepairFixesCorruptFileAndReducesIssueCount() async throws {
@@ -226,7 +226,7 @@ final class Tur6Tests: XCTestCase {
     // Kanıt 1: yalnızca eşiği aşan görsel kaldı.
     XCTAssertEqual(outputs.count, 1, "varsayılan eşikte yalnız 1 görsel kalmalı: \(outputs)")
     XCTAssertTrue(
-      outputs.allSatisfy { $0.deletingLastPathComponent().lastPathComponent == "gorselli_gorseller" })
+      outputs.allSatisfy { $0.deletingLastPathComponent().lastPathComponent == "gorselli_embedded" })
 
     // Kanıt 2: her dosya GERÇEKTEN açılabilir bir görüntü ve BOŞ DEĞİL.
     for url in outputs {
@@ -256,7 +256,7 @@ final class Tur6Tests: XCTestCase {
     Self.makeMultiPageFixture(pageCount: 2, to: source)
     let outcome = try await ExtractImagesOperation().run(
       file: PDFFileInfo.inspect(source), context: OperationContext(outputDirectory: dir)) { _ in }
-    XCTAssertEqual(outcome, .skipped(reason: "Gömülü görsel bulunamadı"))
+    XCTAssertEqual(outcome, .skipped(reason: "No embedded images found"))
   }
 
   // MARK: - 4. Metni Çıkar
@@ -284,8 +284,8 @@ final class Tur6Tests: XCTestCase {
     XCTAssertTrue(content.contains(page2))
     XCTAssertTrue(content.contains(page3))
     // Kanıt 2: sayfa ayraçları var.
-    XCTAssertTrue(content.contains("--- sayfa 2 ---"))
-    XCTAssertTrue(content.contains("--- sayfa 3 ---"))
+    XCTAssertTrue(content.contains("--- page 2 ---"))
+    XCTAssertTrue(content.contains("--- page 3 ---"))
     // Kanıt 3: sıralama doğru (1 önce, sonra 2, sonra 3) — yanlış sırayla birleştirme de
     // "içerik var" testini geçerdi, konum kontrolü gerçek kanıttır.
     guard let r1 = content.range(of: page1), let r2 = content.range(of: page2),

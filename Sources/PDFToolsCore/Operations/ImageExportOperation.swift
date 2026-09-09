@@ -22,16 +22,16 @@ enum ImageFormat: String, Sendable {
 }
 
 /// Her sayfayı görüntü dosyasına yazar. Yalnızca yerleşik CoreGraphics + ImageIO kullanılır —
-/// alt süreç YOK. Çıktılar `<ad>_gorseller/` klasörüne `sayfa-001.png` gibi yazılır.
+/// alt süreç YOK. Çıktılar `<ad>_images/` klasörüne `page-001.png` gibi yazılır.
 /// Bellek: sayfa render edilir edilmez diske yazılır, aynı anda tek sayfalık bitmap tutulur.
 public struct ImageExportOperation: PDFOperation {
   public static let identifier = "image"
   public let id = ImageExportOperation.identifier
-  public let title = "Görüntüye Aktar"
-  public let subtitle = "Her sayfayı PNG/JPEG/HEIC görüntüsüne çevirir"
+  public let title = "PDF to Images"
+  public let subtitle = "Converts each page to a PNG/JPEG/HEIC image"
   public let systemImage = "photo.on.rectangle"
-  public let actionTitle = "Görüntüye Aktar"
-  public let outputSuffix = "_gorseller"
+  public let actionTitle = "PDF to Images"
+  public let outputSuffix = "_images"
 
   public static let formatOptionID = "format"
   public static let dpiOptionID = "dpi"
@@ -49,10 +49,14 @@ public struct ImageExportOperation: PDFOperation {
     var formatChoices: [(value: String, label: String)] = [("png", "PNG"), ("jpeg", "JPEG")]
     if Self.heicWriteSupported { formatChoices.append(("heic", "HEIC")) }
     return [
-      OperationOption(id: Self.formatOptionID, label: "Biçim", choices: formatChoices, defaultValue: "png"),
       OperationOption(
-        id: Self.dpiOptionID, label: "Çözünürlük",
-        choices: [("72", "72 dpi"), ("150", "150 dpi"), ("300", "300 dpi"), ("600", "600 dpi")],
+        id: Self.formatOptionID, label: "Format", choices: formatChoices, defaultValue: "png"),
+      OperationOption(
+        id: Self.dpiOptionID, label: "Resolution",
+        choices: [
+          ("72", "72 dpi — web preview"), ("150", "150 dpi — for screen"),
+          ("300", "300 dpi — for print"), ("600", "600 dpi — high-res print"),
+        ],
         defaultValue: "150"),
     ]
   }
@@ -67,15 +71,15 @@ public struct ImageExportOperation: PDFOperation {
     case .restricted, .none: break
     }
     guard file.pageCount > 0 else {
-      return .skipped(reason: "Sayfa yok")
+      return .skipped(reason: "No pages")
     }
 
     let formatValue = context.options[Self.formatOptionID] ?? "png"
     guard let format = ImageFormat(rawValue: formatValue) else {
-      throw OperationError.unsupportedOperationMode("Bilinmeyen görüntü biçimi: \(formatValue)")
+      throw OperationError.unsupportedOperationMode("Unknown image format: \(formatValue)")
     }
     if format == .heic, !Self.heicWriteSupported {
-      throw OperationError.engineMissing("Bu sistemde HEIC yazma desteklenmiyor")
+      throw OperationError.engineMissing("HEIC writing isn't supported on this system")
     }
     let dpi = CGFloat(Double(context.options[Self.dpiOptionID] ?? "150") ?? 150)
 
@@ -96,7 +100,7 @@ public struct ImageExportOperation: PDFOperation {
       for pageIndex in 1...total {
         try Task.checkCancellation()
         guard let page = document.page(at: pageIndex) else { continue }
-        let name = "sayfa-" + String(format: "%03d", pageIndex) + "." + format.fileExtension
+        let name = "page-" + String(format: "%03d", pageIndex) + "." + format.fileExtension
         let pageURL = partialDir.appendingPathComponent(name)
         // Bilinçli olarak DÖNGÜ İÇİNDE: context/image/destination yalnızca bu iterasyon boyunca
         // yaşar, bir sonraki sayfaya geçmeden ARC ile serbest kalır — aynı anda tek sayfa bellekte.

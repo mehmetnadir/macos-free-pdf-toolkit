@@ -4,25 +4,25 @@ import Foundation
 /// Listedeki tüm dosyaları listedeki SIRAYLA tek PDF'te birleştirir. Motor: qpdf
 /// `--empty --pages a.pdf b.pdf ... -- out.pdf` (aslına sadık sayfa kopyası, yeniden damıtma yok).
 /// Tüm bekleyen dosyalar TEK çağrıda işlenir (bkz. `arity == .combined`) — dosya başına değil.
-/// Çıktı: ilk dosyanın adından türetilir, sonek `_birlesik` (kaynağın yanına ya da seçilen klasöre).
+/// Çıktı: ilk dosyanın adından türetilir, sonek `_merged` (kaynağın yanına ya da seçilen klasöre).
 public struct MergeOperation: PDFOperation {
   public static let identifier = "merge"
   public let id = MergeOperation.identifier
-  public let title = "Birleştir"
-  public let subtitle = "Listedeki tüm dosyaları listedeki sırayla tek PDF'te birleştirir"
+  public let title = "Merge"
+  public let subtitle = "Merges every file in the list into one PDF, in list order"
   public let systemImage = "doc.on.doc"
-  public let actionTitle = "Birleştir"
+  public let actionTitle = "Merge"
   public let arity: OperationArity = .combined
-  public let outputSuffix = "_birlesik"
+  public let outputSuffix = "_merged"
 
   public init() {}
 
   /// En az iki dosya gerektirir — tüm listedeki dosya sayısına bakar (bu işlem `.combined`,
   /// listenin TAMAMINI tek çağrıda işler; bkz. `runCombined`).
   public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
-    guard !files.isEmpty else { return .notApplicable(reason: "Önce PDF ekleyin") }
+    guard !files.isEmpty else { return .notApplicable(reason: "Add a PDF first") }
     guard files.count >= 2 else {
-      return .notApplicable(reason: "Birleştirmek için en az iki dosya gerekli")
+      return .notApplicable(reason: "Needs at least two files to merge")
     }
     return .applicable(fileCount: files.count)
   }
@@ -31,8 +31,8 @@ public struct MergeOperation: PDFOperation {
     files: [PDFFileInfo], context: OperationContext,
     progress: @escaping @Sendable (Double) -> Void
   ) async throws -> OperationOutcome {
-    guard !files.isEmpty else { return .skipped(reason: "Birleştirilecek dosya yok") }
-    guard files.count > 1 else { return .skipped(reason: "Birleştirmek için en az iki dosya gerekli") }
+    guard !files.isEmpty else { return .skipped(reason: "No files to merge") }
+    guard files.count > 1 else { return .skipped(reason: "Needs at least two files to merge") }
 
     for file in files {
       switch file.lockState {
@@ -47,7 +47,7 @@ public struct MergeOperation: PDFOperation {
     }
 
     guard let qpdf = EngineLocator.find("qpdf") else {
-      throw OperationError.engineMissing("qpdf motoru bulunamadı")
+      throw OperationError.engineMissing("qpdf engine not found")
     }
 
     progress(0)

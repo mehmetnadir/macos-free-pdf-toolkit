@@ -10,8 +10,8 @@ public enum EncryptError: Error, LocalizedError, Equatable {
 
   public var errorDescription: String? {
     switch self {
-    case .noPasswordProvided: return "En az bir parola girin"
-    case .verificationFailed: return "Şifreleme doğrulanamadı — çıktı silindi"
+    case .noPasswordProvided: return "Enter at least one password"
+    case .verificationFailed: return "Encryption could not be verified — output deleted"
     }
   }
 }
@@ -19,15 +19,15 @@ public enum EncryptError: Error, LocalizedError, Equatable {
 /// Şifreleme uygular (256-bit AES SABİT — 40/128-bit güvensiz sayıldığından seçenek olarak
 /// SUNULMUYOR). Motor: yalnız qpdf `--encrypt --user-password=<u> --owner-password=<o> --bits=256
 /// [izin bayrakları] -- in out` (sözdizimi `qpdf --help=encryption` ile doğrulandı, bkz. dosya
-/// sonu yorumu). Çıktı: `<ad>_sifreli.pdf`.
+/// sonu yorumu). Çıktı: `<ad>_encrypted.pdf`.
 public struct EncryptOperation: PDFOperation {
   public static let identifier = "encrypt"
   public let id = EncryptOperation.identifier
-  public let title = "Şifrele"
-  public let subtitle = "256-bit AES ile parola korumalı hâle getirir"
+  public let title = "Encrypt"
+  public let subtitle = "Password-protects the file with 256-bit AES"
   public let systemImage = "lock"
-  public let actionTitle = "Şifrele"
-  public let outputSuffix = "_sifreli"
+  public let actionTitle = "Encrypt"
+  public let outputSuffix = "_encrypted"
 
   /// `OperationContext.options` anahtarları — `OperationOption.choices`'tan GELMEZ (serbest metin
   /// parola alanı `OperationOption`'ın "seçim" modeliyle ifade edilemez), arayüz doğrudan bu
@@ -41,22 +41,22 @@ public struct EncryptOperation: PDFOperation {
   public var options: [OperationOption] {
     [
       OperationOption(
-        id: Self.permissionsOptionID, label: "İzinler",
+        id: Self.permissionsOptionID, label: "Permissions",
         choices: [
-          ("all", "Hepsi serbest"),
-          ("noprint", "Yazdırma kapalı"),
-          ("nocopy", "Kopyalama kapalı"),
-          ("readonly", "Yazdırma + kopyalama kapalı"),
+          ("all", "Everything allowed"),
+          ("noprint", "Printing disabled"),
+          ("nocopy", "Copying disabled"),
+          ("readonly", "Printing + copying disabled"),
         ], defaultValue: "all"),
     ]
   }
 
-  /// Zaten şifreli dosyaları saymaz (`run()`'da `.skipped(reason: "Zaten şifreli")` ile atlanır) —
+  /// Zaten şifreli dosyaları saymaz (`run()`'da `.skipped(reason: "Already encrypted")` ile atlanır) —
   /// buradaki basit tutuluş bilinçli: görev tarifinde "dosya varsa `.applicable(files.count)`"
   /// istendi, kartın alt metnini özelleştirmek `ContentView.cardSubtitle`'ın işi (bu turun kapsamı
   /// dışında).
   public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
-    files.isEmpty ? .notApplicable(reason: "Önce PDF ekleyin") : .applicable(fileCount: files.count)
+    files.isEmpty ? .notApplicable(reason: "Add a PDF first") : .applicable(fileCount: files.count)
   }
 
   public func run(
@@ -65,7 +65,7 @@ public struct EncryptOperation: PDFOperation {
   ) async throws -> OperationOutcome {
     switch file.lockState {
     case .unreadable: throw OperationError.unreadable
-    case .restricted, .passwordRequired: return .skipped(reason: "Zaten şifreli")
+    case .restricted, .passwordRequired: return .skipped(reason: "Already encrypted")
     case .none: break
     }
 
@@ -81,14 +81,14 @@ public struct EncryptOperation: PDFOperation {
     if !userPassword.isEmpty, ownerPassword.isEmpty {
       // qpdf 256-bit'te bunu kendisi de reddediyor (`--allow-insecure` verilmezse hata) — bu
       // yüzden bayrağı biz ekliyoruz, kullanıcıyı hatayla değil notla bilgilendiriyoruz.
-      notes.append("sahip parolası boş — çıktı yine de parolasız açılabilir")
+      notes.append("owner password is empty — output can still be opened without a password")
       needsAllowInsecure = true
     } else if !userPassword.isEmpty, userPassword == ownerPassword {
-      notes.append("kullanıcı ve sahip parolası aynı — ayrı parolalar daha güvenli")
+      notes.append("user and owner password are the same — separate passwords are more secure")
     }
 
     guard let qpdf = EngineLocator.find("qpdf") else {
-      throw OperationError.engineMissing("qpdf motoru bulunamadı")
+      throw OperationError.engineMissing("qpdf engine not found")
     }
 
     let permissions = context.options[Self.permissionsOptionID] ?? "all"

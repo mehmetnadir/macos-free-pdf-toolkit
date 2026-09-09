@@ -11,17 +11,17 @@ import Foundation
 /// bunları elle ayrıştırmak SESSİZCE renk-bozuk ya da yanlış bir görsel üretme riski taşır — bu proje
 /// genelinde "gerçek piksele bak, motora güvenme" ilkesine ters düşerdi. pdfcpu bu tam modeli zaten
 /// doğru uyguluyor ve bu depoda başka işlemlerde (Birleştir/Parçala) hâlâ vendored + test edilmiş
-/// durumda; ek bir motor/lisans riski yok. Çıktı: `<ad>_gorseller/` klasörü — pdfcpu'nun kendi
+/// durumda; ek bir motor/lisans riski yok. Çıktı: `<ad>_embedded/` klasörü — pdfcpu'nun kendi
 /// `<taban>_<sayfa>_<isim>.<uzantı>` adlandırması korunur; yalnızca "minSize" eşiğinin altında kalan
 /// (ikon/çizgi gibi) görseller elenir.
 public struct ExtractImagesOperation: PDFOperation {
   public static let identifier = "extractimages"
   public let id = ExtractImagesOperation.identifier
-  public let title = "Görselleri Çıkar"
-  public let subtitle = "Sayfalardaki gömülü görselleri ayrı dosyalara aktarır"
+  public let title = "Extract Embedded Images"
+  public let subtitle = "Exports each embedded image on the pages to its own file"
   public let systemImage = "photo.stack"
-  public let actionTitle = "Görselleri Çıkar"
-  public let outputSuffix = "_gorseller"
+  public let actionTitle = "Extract Embedded Images"
+  public let outputSuffix = "_embedded"
 
   public static let minSizeOptionID = "minSize"
 
@@ -30,8 +30,8 @@ public struct ExtractImagesOperation: PDFOperation {
   public var options: [OperationOption] {
     [
       OperationOption(
-        id: Self.minSizeOptionID, label: "En Az Boyut",
-        choices: [("0", "Hepsi"), ("10000", "10 bin pikselden büyük")],
+        id: Self.minSizeOptionID, label: "Minimum Size",
+        choices: [("0", "All"), ("10000", "Larger than 10,000 px")],
         defaultValue: "10000"),
     ]
   }
@@ -46,7 +46,7 @@ public struct ExtractImagesOperation: PDFOperation {
     case .restricted, .none: break
     }
     guard let pdfcpu = EngineLocator.find("pdfcpu") else {
-      throw OperationError.engineMissing("pdfcpu motoru bulunamadı")
+      throw OperationError.engineMissing("pdfcpu engine not found")
     }
     let minSize = Int(context.options[Self.minSizeOptionID] ?? "10000") ?? 10000
 
@@ -95,7 +95,7 @@ public struct ExtractImagesOperation: PDFOperation {
 
     guard !kept.isEmpty else {
       try? fm.removeItem(at: partialDir)
-      return .skipped(reason: "Gömülü görsel bulunamadı")
+      return .skipped(reason: "No embedded images found")
     }
 
     try fm.moveItem(at: partialDir, to: outputDir)

@@ -16,10 +16,10 @@ import Foundation
 public struct QRAddOperation: PDFOperation {
   public static let identifier = "qradd"
   public let id = QRAddOperation.identifier
-  public let title = "QR Ekle"
-  public let subtitle = "Her sayfaya (ya da yalnız ilk sayfaya) bir QR kod çizer"
+  public let title = "Add QR"
+  public let subtitle = "Draws a QR code on every page (or only the first)"
   public let systemImage = "qrcode"
-  public let actionTitle = "QR Ekle"
+  public let actionTitle = "Add QR"
   public let outputSuffix = "_qr"
 
   /// `OperationContext.options` anahtarı: QR'a kodlanacak serbest metin. Boşsa/verilmemişse
@@ -39,16 +39,18 @@ public struct QRAddOperation: PDFOperation {
   public var options: [OperationOption] {
     [
       OperationOption(
-        id: Self.positionOptionID, label: "Konum",
-        choices: [("br", "Sağ alt"), ("bl", "Sol alt"), ("tr", "Sağ üst"), ("tl", "Sol üst")],
+        id: Self.positionOptionID, label: "Position",
+        choices: [
+          ("br", "Bottom right"), ("bl", "Bottom left"), ("tr", "Top right"), ("tl", "Top left"),
+        ],
         defaultValue: "br"),
       OperationOption(
-        id: Self.sizeOptionID, label: "Boyut",
-        choices: [("small", "Küçük"), ("medium", "Orta"), ("large", "Büyük")],
+        id: Self.sizeOptionID, label: "Size",
+        choices: [("small", "Small"), ("medium", "Medium"), ("large", "Large")],
         defaultValue: "medium"),
       OperationOption(
-        id: Self.pagesOptionID, label: "Sayfalar",
-        choices: [("all", "Tüm sayfalar"), ("first", "Yalnız ilk sayfa")],
+        id: Self.pagesOptionID, label: "Pages",
+        choices: [("all", "All pages"), ("first", "First page only")],
         defaultValue: "all"),
     ]
   }
@@ -63,7 +65,7 @@ public struct QRAddOperation: PDFOperation {
     case .restricted, .none: break
     }
     guard file.pageCount > 0 else {
-      return .skipped(reason: "Sayfa yok")
+      return .skipped(reason: "No pages")
     }
 
     let content =
@@ -206,9 +208,9 @@ public enum QRError: Error, LocalizedError, Equatable {
 
   public var errorDescription: String? {
     switch self {
-    case .contentRequired: return "QR içeriği girin"
-    case .generationFailed: return "QR görüntüsü üretilemedi — içerik çok uzun olabilir"
-    case .verificationFailed: return "QR eklendi ama okunamadı — çıktı silindi"
+    case .contentRequired: return "Enter QR content"
+    case .generationFailed: return "Could not generate the QR image — content may be too long"
+    case .verificationFailed: return "QR was added but couldn't be read back — output deleted"
     }
   }
 }

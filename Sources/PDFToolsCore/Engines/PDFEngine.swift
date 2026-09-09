@@ -6,10 +6,10 @@ public enum EngineError: Error, LocalizedError, Equatable {
 
   public var errorDescription: String? {
     switch self {
-    case .wrongPassword: return "Şifre yanlış"
+    case .wrongPassword: return "Wrong password"
     case .failed(let status, let message):
       let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-      return trimmed.isEmpty ? "Motor hata verdi (kod \(status))" : trimmed
+      return trimmed.isEmpty ? "Engine failed (code \(status))" : trimmed
     }
   }
 }

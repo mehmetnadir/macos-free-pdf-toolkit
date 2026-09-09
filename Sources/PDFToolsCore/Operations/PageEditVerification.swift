@@ -39,22 +39,22 @@ public enum PageEditVerification {
   /// yazıldığını doğrular. Sayfa açılamıyorsa ya da herhangi bir kontrol tutmuyorsa `.failed` döner.
   public static func verify(input: URL, plan: PageEditPlan, output: URL) -> Result {
     guard let outDoc = CGPDFDocument(output as CFURL) else {
-      return Result(verdict: .failed, message: "çıktı açılamadı")
+      return Result(verdict: .failed, message: "output could not be opened")
     }
     guard outDoc.numberOfPages == plan.order.count else {
       return Result(
         verdict: .failed,
-        message: "çıktı \(outDoc.numberOfPages) sayfa, plan \(plan.order.count) sayfa bekliyordu")
+        message: "output has \(outDoc.numberOfPages) pages, plan expected \(plan.order.count)")
     }
     guard let inDoc = CGPDFDocument(input as CFURL) else {
-      return Result(verdict: .failed, message: "kaynak açılamadı")
+      return Result(verdict: .failed, message: "source could not be opened")
     }
 
     for (index, sourcePage) in plan.order.enumerated() {
       let outputPage = index + 1
       guard let srcPage = inDoc.page(at: sourcePage), let outPage = outDoc.page(at: outputPage)
       else {
-        return Result(verdict: .failed, message: "sayfa \(outputPage) açılamadı")
+        return Result(verdict: .failed, message: "page \(outputPage) could not be opened")
       }
 
       // 1) İçerik/konum: kaynağın plandaki sayfası ham pikselde çıktının bu konumuna taşınmış mı.
@@ -65,7 +65,7 @@ public enum PageEditVerification {
         return Result(
           verdict: .failed,
           message:
-            "çıktı sayfa \(outputPage), kaynağın \(sourcePage). sayfasıyla piksel düzeyinde eşleşmiyor"
+            "output page \(outputPage) doesn't pixel-match source page \(sourcePage)"
         )
       }
 
@@ -76,7 +76,7 @@ public enum PageEditVerification {
         return Result(
           verdict: .failed,
           message:
-            "çıktı sayfa \(outputPage) döndürme derecesi \(actualDegree), beklenen \(expectedDegree)"
+            "output page \(outputPage) rotation is \(actualDegree)°, expected \(expectedDegree)°"
         )
       }
 
@@ -90,12 +90,12 @@ public enum PageEditVerification {
         return Result(
           verdict: .failed,
           message:
-            "çıktı sayfa \(outputPage) kutusu (\(outputBox.width)×\(outputBox.height)) "
-            + "kaynağınkiyle (\(sourceBox.width)×\(sourceBox.height)) uyuşmuyor")
+            "output page \(outputPage) box (\(outputBox.width)×\(outputBox.height)) "
+            + "doesn't match source (\(sourceBox.width)×\(sourceBox.height))")
       }
     }
 
-    return Result(verdict: .clean, message: "\(plan.order.count) sayfa doğrulandı")
+    return Result(verdict: .clean, message: "\(plan.order.count) pages verified")
   }
 
   /// Bir sayfanın GÖRÜNTÜLENEN (rotasyon uygulanmış) boyutu. `/Rotate` 90 ya da 270 ise ham

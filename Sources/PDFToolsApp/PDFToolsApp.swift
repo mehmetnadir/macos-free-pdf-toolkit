@@ -43,9 +43,9 @@ struct PDFToolsApp: App {
     .defaultSize(width: 640, height: 460)
     .commands {
       CommandGroup(replacing: .newItem) {
-        Button("Dosya Ekle…") { model.pickFiles() }
+        Button("Add Files…") { model.pickFiles() }
           .keyboardShortcut("o", modifiers: .command)
-        Button("Listeyi Temizle") { model.clear() }
+        Button("Clear List") { model.clear() }
           .keyboardShortcut(.delete, modifiers: [.command, .shift])
           .disabled(model.items.isEmpty || model.isRunning)
       }

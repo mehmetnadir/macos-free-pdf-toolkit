@@ -28,26 +28,26 @@ import Foundation
 public struct BookmarkOperation: PDFOperation {
   public static let identifier = "bookmarks"
   public let id = BookmarkOperation.identifier
-  public let title = "Yer İmleri"
-  public let subtitle = "Yer imlerini dışa aktarır ya da bir JSON'dan içe aktarır"
+  public let title = "Bookmarks"
+  public let subtitle = "Exports bookmarks, or imports them from a JSON file"
   public let systemImage = "bookmark"
-  public let actionTitle = "Yer İmi Uygula"
+  public let actionTitle = "Apply Bookmarks"
 
   public static let modeOptionID = "mode"
   /// `OperationContext.options` anahtarı: içe aktarılacak JSON'un dosya yolu — serbest bir yol
   /// olduğundan (bkz. `QRAddOperation.contentOptionID` aynı gerekçe) bir `OperationOption` DEĞİL.
   public static let bookmarkFileOptionID = "bookmarkFile"
 
-  public static let exportSuffix = "_yerimleri"
-  public static let importSuffix = "_yerimli"
+  public static let exportSuffix = "_bookmarks"
+  public static let importSuffix = "_bookmarked"
 
   public init() {}
 
   public var options: [OperationOption] {
     [
       OperationOption(
-        id: Self.modeOptionID, label: "Kip",
-        choices: [("export", "Dışa Aktar"), ("import", "İçe Aktar")], defaultValue: "export")
+        id: Self.modeOptionID, label: "Mode",
+        choices: [("export", "Export"), ("import", "Import")], defaultValue: "export")
     ]
   }
 
@@ -61,7 +61,7 @@ public struct BookmarkOperation: PDFOperation {
     case .restricted, .none: break
     }
     guard let pdfcpu = EngineLocator.find("pdfcpu") else {
-      throw OperationError.engineMissing("pdfcpu motoru bulunamadı")
+      throw OperationError.engineMissing("pdfcpu engine not found")
     }
     let mode = context.options[Self.modeOptionID] ?? "export"
     if mode == "import" {
@@ -90,7 +90,7 @@ public struct BookmarkOperation: PDFOperation {
       try? fm.removeItem(at: partial)
       let combined = (result.stderr + result.stdout).lowercased()
       if combined.contains("no bookmarks available") {
-        return .skipped(reason: "Yer imi yok")
+        return .skipped(reason: "No bookmarks")
       }
       throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
     }
@@ -101,7 +101,7 @@ public struct BookmarkOperation: PDFOperation {
       let decoded = try? JSONDecoder().decode(BookmarkFile.self, from: data)
     else {
       try? fm.removeItem(at: partial)
-      throw BookmarkError.verificationFailed("dışa aktarılan JSON okunamadı")
+      throw BookmarkError.verificationFailed("exported JSON could not be read")
     }
     let exportedCount = Self.countEntries(decoded.bookmarks)
 
@@ -111,12 +111,12 @@ public struct BookmarkOperation: PDFOperation {
     guard exportedCount == outlineCount, exportedCount > 0 else {
       try? fm.removeItem(at: partial)
       throw BookmarkError.verificationFailed(
-        "yer imi sayısı uyuşmuyor (JSON: \(exportedCount), PDFKit: \(outlineCount))")
+        "bookmark count mismatch (JSON: \(exportedCount), PDFKit: \(outlineCount))")
     }
 
     try fm.moveItem(at: partial, to: output)
     progress(1)
-    return .produced(urls: [output], note: "\(exportedCount) yer imi dışa aktarıldı")
+    return .produced(urls: [output], note: "Exported \(exportedCount) bookmarks")
   }
 
   // MARK: - İçe aktar
@@ -160,7 +160,7 @@ public struct BookmarkOperation: PDFOperation {
     // Kanıt 1: sayfa sayısı korunmuş.
     guard let doc = CGPDFDocument(partial as CFURL), doc.numberOfPages == file.pageCount else {
       try? fm.removeItem(at: partial)
-      throw BookmarkError.verificationFailed("sayfa sayısı korunmadı")
+      throw BookmarkError.verificationFailed("page count wasn't preserved")
     }
 
     // Kanıt 2: çıktıdaki yer imi sayısı JSON'daki (girdi) ile eşit — PDFKit `outlineRoot` üzerinden
@@ -169,12 +169,12 @@ public struct BookmarkOperation: PDFOperation {
     guard actualCount == expectedCount else {
       try? fm.removeItem(at: partial)
       throw BookmarkError.verificationFailed(
-        "yer imi sayısı uyuşmuyor (beklenen: \(expectedCount), çıktı: \(actualCount))")
+        "bookmark count mismatch (expected: \(expectedCount), output: \(actualCount))")
     }
 
     try fm.moveItem(at: partial, to: output)
     progress(1)
-    return .produced(urls: [output], note: "\(actualCount) yer imi uygulandı")
+    return .produced(urls: [output], note: "Applied \(actualCount) bookmarks")
   }
 
   /// İç içe (kids) dahil TÜM giriş sayısını sayar — export/import doğrulamasının PAYLAŞTIĞI sayaç.
@@ -222,10 +222,10 @@ public enum BookmarkError: Error, LocalizedError, Equatable {
 
   public var errorDescription: String? {
     switch self {
-    case .fileRequired: return "İçe aktarılacak yer imi JSON dosyasını seçin"
-    case .invalidFile: return "Yer imi JSON dosyası geçersiz ya da boş"
+    case .fileRequired: return "Select a bookmark JSON file to import"
+    case .invalidFile: return "Bookmark JSON file is invalid or empty"
     case .verificationFailed(let detail):
-      return "Yer imi işlemi doğrulanamadı — \(detail) — çıktı silindi"
+      return "Bookmark operation could not be verified — \(detail) — output deleted"
     }
   }
 }

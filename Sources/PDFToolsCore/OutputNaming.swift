@@ -15,7 +15,7 @@ public enum OutputNaming {
     return candidate
   }
 
-  /// `kitap.pdf` + `_parca` → `kitap_parca/`; çakışırsa `kitap_parca 2/`, `... 3/` (dosyalarla
+  /// `kitap.pdf` + `_parts` → `kitap_parts/`; çakışırsa `kitap_parts 2/`, `... 3/` (dosyalarla
   /// aynı mantık, uzantı yok — çoklu çıktı üreten işlemler bir klasöre yazar).
   public static func uniqueDirectory(for input: URL, suffix: String, in directory: URL? = nil) -> URL {
     let dir = directory ?? input.deletingLastPathComponent()

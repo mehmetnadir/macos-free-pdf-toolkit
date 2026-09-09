@@ -83,22 +83,22 @@ struct PageGridView: View {
   private var header: some View {
     HStack(spacing: 10) {
       VStack(alignment: .leading, spacing: 2) {
-        Text("Sayfa Düzenle").font(.headline)
-        Text("\(fileInfo.fileName) · \(cells.count) sayfa")
+        Text("Organize Pages").font(.headline)
+        Text("\(fileInfo.fileName) · \(counted(cells.count, "page"))")
           .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
       }
       Spacer()
       Button { rotate(by: -1) } label: { Image(systemName: "rotate.left") }
-        .help("Seçili sayfaları sola döndür").disabled(selection.isEmpty)
+        .help("Rotate selected pages left").disabled(selection.isEmpty)
       Button { rotate(by: 1) } label: { Image(systemName: "rotate.right") }
-        .help("Seçili sayfaları sağa döndür").disabled(selection.isEmpty)
+        .help("Rotate selected pages right").disabled(selection.isEmpty)
       Button(role: .destructive) { toggleDeleteSelected() } label: {
         Label(deleteButtonTitle, systemImage: "trash")
       }
-      .help("Seçili sayfaları sil ya da geri al")
+      .help("Delete or restore selected pages")
       .disabled(selection.isEmpty)
       .keyboardShortcut(.delete, modifiers: [])
-      Button("Tümünü Seç") { selectAll() }
+      Button("Select All") { selectAll() }
         .keyboardShortcut("a", modifiers: .command)
     }
     .padding(.horizontal, 16)
@@ -108,7 +108,7 @@ struct PageGridView: View {
   private var deleteButtonTitle: String {
     let selected = cells.filter { selection.contains($0.id) }
     let allDeleted = !selected.isEmpty && selected.allSatisfy(\.isDeleted)
-    return allDeleted ? "Geri Al" : "Sil"
+    return allDeleted ? "Undo" : "Delete"
   }
 
   // MARK: - Alt çubuk
@@ -117,8 +117,8 @@ struct PageGridView: View {
     HStack(spacing: 12) {
       Text(summaryText).font(.callout).foregroundStyle(keptCount == 0 ? .red : .secondary)
       Spacer()
-      Button("Vazgeç", action: onCancel).keyboardShortcut(.cancelAction)
-      Button("Uygula", action: apply)
+      Button("Cancel", action: onCancel).keyboardShortcut(.cancelAction)
+      Button("Apply", action: apply)
         .buttonStyle(.borderedProminent)
         .keyboardShortcut(.defaultAction)
         .disabled(!canApply)
@@ -136,8 +136,8 @@ struct PageGridView: View {
   /// sayı için doğru üretmek ayrı bir dilbilgisi motoru gerektirir. Onun yerine ek gerektirmeyen,
   /// her sayı için KESİN doğru olan bu biçim kullanılıyor.
   private var summaryText: String {
-    guard keptCount > 0 else { return "Tüm sayfalar silinemez — en az 1 sayfa kalmalı" }
-    return "\(cells.count) sayfa · silinecek: \(deletedCount) · döndürülecek: \(rotatedCount)"
+    guard keptCount > 0 else { return "All pages cannot be deleted — at least 1 page must remain" }
+    return "\(counted(cells.count, "page")) · \(deletedCount) to delete · \(rotatedCount) to rotate"
   }
 
   // MARK: - Kurulum
@@ -305,7 +305,7 @@ private struct PageCellView: View {
           }
           .buttonStyle(.plain)
           .padding(5)
-          .help("Bu sayfayı geri al")
+          .help("Restore this page")
         }
       }
       Text("\(cell.id)")
