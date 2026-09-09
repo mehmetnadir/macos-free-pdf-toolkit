@@ -28,6 +28,7 @@ public struct EncryptOperation: PDFOperation {
   public let systemImage = "lock"
   public let actionTitle = "Encrypt"
   public let outputSuffix = "_encrypted"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   /// `OperationContext.options` anahtarları — `OperationOption.choices`'tan GELMEZ (serbest metin
   /// parola alanı `OperationOption`'ın "seçim" modeliyle ifade edilemez), arayüz doğrudan bu

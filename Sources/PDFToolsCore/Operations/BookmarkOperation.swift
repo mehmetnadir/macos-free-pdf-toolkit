@@ -40,6 +40,7 @@ public struct BookmarkOperation: PDFOperation {
 
   public static let exportSuffix = "_bookmarks"
   public static let importSuffix = "_bookmarked"
+  public var outputSuffixes: [String] { [Self.exportSuffix, Self.importSuffix] }
 
   public init() {}
 
@@ -47,7 +48,10 @@ public struct BookmarkOperation: PDFOperation {
     [
       OperationOption(
         id: Self.modeOptionID, label: "Mode",
-        choices: [("export", "Export"), ("import", "Import")], defaultValue: "export")
+        choices: [
+          ("export", "Export — save bookmarks to a JSON file"),
+          ("import", "Import — apply bookmarks from a JSON file"),
+        ], defaultValue: "export")
     ]
   }
 
@@ -90,7 +94,7 @@ public struct BookmarkOperation: PDFOperation {
       try? fm.removeItem(at: partial)
       let combined = (result.stderr + result.stdout).lowercased()
       if combined.contains("no bookmarks available") {
-        return .skipped(reason: "No bookmarks")
+        return .skipped(reason: "No bookmarks to export")
       }
       throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
     }

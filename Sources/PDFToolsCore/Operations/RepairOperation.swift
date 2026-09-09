@@ -15,6 +15,7 @@ public struct RepairOperation: PDFOperation {
   public let systemImage = "bandage"
   public let actionTitle = "Repair"
   public let outputSuffix = "_repaired"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   public init() {}
 
@@ -76,8 +77,12 @@ public struct RepairOperation: PDFOperation {
 
     try fm.moveItem(at: partial, to: output)
     progress(1)
+    // Ham uyarı/hata SAYISI kullanıcıya bir şey ifade etmez (bkz. görev tanımı) — asıl karar
+    // noktası hepsi mi düzeldi yoksa bir kısmı mı kaldı.
     let note =
-      "\(before.issueLineCount) warnings/errors found, \(after.issueLineCount) remain after repair"
+      after.issueLineCount == 0
+      ? "File structure repaired"
+      : "File structure repaired — some issues could not be fixed automatically"
     return .produced(urls: [output], note: note)
   }
 }

@@ -27,6 +27,7 @@ public struct SearchablePDFOperation: PDFOperation {
   public let systemImage = "doc.text.magnifyingglass"
   public let actionTitle = "Make Searchable"
   public let outputSuffix = "_searchable"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   public init() {}
 
@@ -84,7 +85,7 @@ public struct SearchablePDFOperation: PDFOperation {
 
     guard let firstSample = samples.first else {
       try? fm.removeItem(at: partial)
-      return .skipped(reason: "No text recognized (\(total) pages scanned)")
+      return .skipped(reason: "No text recognized — pages may be blank or too low quality to read")
     }
 
     // Kanıt: görünmez metin GERÇEKTEN seçilebilir/aranabilir mi (bkz. dosya üstü yorum).

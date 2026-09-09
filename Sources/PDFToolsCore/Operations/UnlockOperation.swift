@@ -10,6 +10,7 @@ public struct UnlockOperation: PDFOperation {
   public let systemImage = "lock.open"
   public let actionTitle = "Unlock"
   public let outputSuffix = "_unlocked"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   public init() {}
 

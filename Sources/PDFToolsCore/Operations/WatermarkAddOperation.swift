@@ -47,6 +47,7 @@ public struct WatermarkAddOperation: PDFOperation {
   public let systemImage = "text.badge.plus"
   public let actionTitle = "Add Watermark"
   public let outputSuffix = "_watermarked"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   /// `OperationContext.options` anahtarı: filigrana yazılacak serbest metin — `QRAddOperation`
   /// `contentOptionID`'deki AYNI gerekçeyle bir `OperationOption` DEĞİL (serbest metin, seçim
@@ -75,10 +76,12 @@ public struct WatermarkAddOperation: PDFOperation {
         defaultValue: "center"),
       OperationOption(
         id: Self.opacityOptionID, label: "Opacity",
-        choices: [("0.15", "15%"), ("0.3", "30%"), ("0.5", "50%")], defaultValue: "0.15"),
+        choices: [("0.15", "15% — subtle"), ("0.3", "30% — noticeable"), ("0.5", "50% — bold")],
+        defaultValue: "0.15"),
       OperationOption(
         id: Self.fontSizeOptionID, label: "Font Size",
-        choices: [("24", "24 pt"), ("36", "36 pt"), ("48", "48 pt")], defaultValue: "36"),
+        choices: [("24", "24 pt — small"), ("36", "36 pt — medium"), ("48", "48 pt — large")],
+        defaultValue: "36"),
       OperationOption(
         id: Self.colorOptionID, label: "Color",
         choices: [("gray", "Gray"), ("red", "Red"), ("blue", "Blue")], defaultValue: "gray"),

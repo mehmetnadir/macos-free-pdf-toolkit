@@ -1,4 +1,7 @@
 .build/
+# Paralel ajanların yalıtılmış derleme dizinleri (--scratch-path .build-<ad>):
+# aynı anda derleyen oturumlar .build/.lock üzerinde birbirini kilitlemesin diye kullanılır.
+.build-*/
 build/
 vendor/
 *.xcodeproj

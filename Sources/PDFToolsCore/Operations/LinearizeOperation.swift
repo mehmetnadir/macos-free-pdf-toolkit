@@ -13,6 +13,7 @@ public struct LinearizeOperation: PDFOperation {
   public let systemImage = "bolt"
   public let actionTitle = "Optimize for Web"
   public let outputSuffix = "_web"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   public init() {}
 

@@ -22,6 +22,7 @@ public struct ExtractImagesOperation: PDFOperation {
   public let systemImage = "photo.stack"
   public let actionTitle = "Extract Embedded Images"
   public let outputSuffix = "_embedded"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   public static let minSizeOptionID = "minSize"
 

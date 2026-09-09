@@ -13,6 +13,7 @@ public struct TrimOperation: PDFOperation {
   public let systemImage = "crop"
   public let actionTitle = "Trim Bleed"
   public let outputSuffix = "_trimmed"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   public init() {}
 
@@ -82,8 +83,7 @@ public struct TrimOperation: PDFOperation {
 
     var notes: [String] = []
     if verification.verdict == .partial {
-      let formatted = String(format: "%.1f", verification.residuePercent)
-      notes.append("residual \(formatted)%")
+      notes.append("bleed removed — a faint trace remains along the edges")
     }
     if !PDFFileInfo.trimBoxIsConsistent(output) {
       notes.append("bleed margin is inconsistent across pages")

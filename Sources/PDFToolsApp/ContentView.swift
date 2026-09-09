@@ -448,22 +448,50 @@ struct ActionBar: View {
   @Environment(AppModel.self) private var model
 
   var body: some View {
-    HStack(spacing: 12) {
-      statusView
-      Spacer()
-      if model.isRunning {
-        Button("Stop") { model.cancel() }
-          .keyboardShortcut(.cancelAction)
-      } else {
-        Button(model.operation.actionTitle) { runOrOpenPageGrid() }
-          .buttonStyle(.borderedProminent)
-          .keyboardShortcut(.defaultAction)
-          .disabled(!model.canRun)
+    VStack(alignment: .leading, spacing: 6) {
+      destinationView
+      HStack(spacing: 12) {
+        statusView
+        Spacer()
+        if model.isRunning {
+          Button("Stop") { model.cancel() }
+            .keyboardShortcut(.cancelAction)
+        } else {
+          Button(model.operation.actionTitle) { runOrOpenPageGrid() }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!model.canRun)
+        }
       }
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
     .background(.bar)
+  }
+
+  /// Çıktının nereye gittiğini ve orijinalin korunduğunu SÖYLER. Kullanıcı "dosyam nerede,
+  /// aslına bir şey oldu mu" diye merak etmemeli (Nadir, 2026-09-09): bu iki soru bir araçtan
+  /// beklenen en temel güvencedir ve bir kez, koşu bitince, sessizce cevaplanır.
+  @ViewBuilder
+  private var destinationView: some View {
+    if !model.isRunning, let destination = model.lastDestination, model.summary != nil {
+      HStack(spacing: 8) {
+        Image(systemName: destination.usedFallback ? "exclamationmark.triangle" : "folder")
+        Text(destination.note ?? placementText(destination))
+        Text("· Originals were not modified").foregroundStyle(.tertiary)
+        Button("Show Folder") { model.reveal(destination.directory) }
+          .buttonStyle(.link)
+      }
+      .font(.caption)
+      .foregroundStyle(destination.usedFallback ? Color.orange : .secondary)
+    }
+  }
+
+  private func placementText(_ destination: OutputDestination) -> String {
+    if let folder = destination.batchFolderName {
+      return "Saved to “\(folder)” next to the original"
+    }
+    return "Saved next to the original"
   }
 
   /// Solda tek durum metni: özet (bitti/hata sayısı) → motor uyarısı → inceleniyor. Dosya sayısı

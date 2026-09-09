@@ -24,7 +24,10 @@ public struct ExtractTextOperation: PDFOperation {
     [
       OperationOption(
         id: Self.layoutOptionID, label: "Layout",
-        choices: [("plain", "Plain"), ("pages", "Page breaks")], defaultValue: "plain"),
+        choices: [
+          ("plain", "Plain — no page markers"),
+          ("pages", "Page breaks — marks where each page starts"),
+        ], defaultValue: "plain"),
     ]
   }
 

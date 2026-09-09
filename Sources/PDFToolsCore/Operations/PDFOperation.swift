@@ -119,6 +119,12 @@ public protocol PDFOperation: Sendable {
   var arity: OperationArity { get }
   /// Kullanıcıya sunulacak seçimler (ör. kip, biçim, çözünürlük). Varsayılan boş.
   var options: [OperationOption] { get }
+  /// Bu işlemin çıktı adına ekleyebileceği EKLER (ör. `["_compressed"]`). Zincirleme
+  /// adlandırma (`OutputNaming.knownSuffixes`) bunların hepsini tanımak ZORUNDA — tanımazsa
+  /// o işlemin eki soyulmaz ve adlar `..._a_b_c.pdf` diye uzamaya geri döner. Sözleşme
+  /// `Tur11Tests.testEveryOperationSuffixIsKnownToTheNamer` ile çivilenmiştir.
+  /// Boş dizi = ada ek eklemez (ör. Metin Çıkar doğrudan `.txt` yazar).
+  var outputSuffixes: [String] { get }
 
   /// Bu işlem verilen dosya listesine uygulanabilir mi (bkz. `OperationApplicability`). Varsayılan
   /// (protokol uzantısı): dosya varsa `.applicable(files.count)`, yoksa "Add a PDF first". Her
@@ -141,6 +147,7 @@ public protocol PDFOperation: Sendable {
 extension PDFOperation {
   public var arity: OperationArity { .perFile }
   public var options: [OperationOption] { [] }
+  public var outputSuffixes: [String] { [] }
 
   public func applicability(for files: [PDFFileInfo]) -> OperationApplicability {
     files.isEmpty ? .notApplicable(reason: "Add a PDF first") : .applicable(fileCount: files.count)

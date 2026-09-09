@@ -243,7 +243,7 @@ final class Tur7Tests: XCTestCase {
     Self.makeMultiPageFixture(pageCount: 2, to: source)
     let outcome = try await BookmarkOperation().run(
       file: PDFFileInfo.inspect(source), context: OperationContext(outputDirectory: dir)) { _ in }
-    XCTAssertEqual(outcome, .skipped(reason: "No bookmarks"))
+    XCTAssertEqual(outcome, .skipped(reason: "No bookmarks to export"))
     // Yarım/artık dosya kalmamalı.
     let leftovers = try FileManager.default.contentsOfDirectory(atPath: dir.path)
     XCTAssertEqual(leftovers, ["duz.pdf"], "artık dosya kaldı: \(leftovers)")

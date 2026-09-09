@@ -38,6 +38,7 @@ public struct PageNumberOperation: PDFOperation {
   public let systemImage = "list.number"
   public let actionTitle = "Add Page Numbers"
   public let outputSuffix = "_numbered"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   public static let positionOptionID = "position"
   public static let startAtOptionID = "startAt"
@@ -64,7 +65,9 @@ public struct PageNumberOperation: PDFOperation {
         choices: [("1", "From 1 (cover included)"), ("0", "Cover not counted")], defaultValue: "1"),
       OperationOption(
         id: Self.formatOptionID, label: "Format",
-        choices: [("plain", "5"), ("ofN", "5 / 120")], defaultValue: "ofN"),
+        choices: [
+          ("plain", "Number only (e.g. \"5\")"), ("ofN", "Number and total (e.g. \"5 / 120\")"),
+        ], defaultValue: "ofN"),
     ]
   }
 

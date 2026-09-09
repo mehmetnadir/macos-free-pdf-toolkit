@@ -14,6 +14,7 @@ public struct MergeOperation: PDFOperation {
   public let actionTitle = "Merge"
   public let arity: OperationArity = .combined
   public let outputSuffix = "_merged"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   public init() {}
 

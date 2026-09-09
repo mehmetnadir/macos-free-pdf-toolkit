@@ -15,6 +15,7 @@ import Vision
 public struct OCROperation: PDFOperation {
   public static let identifier = "ocr"
   public let id = OCROperation.identifier
+  public var outputSuffixes: [String] { ["_ocr"] }
   public let title = "OCR"
   public let subtitle = "Reads scanned pages with Vision and converts them to plain text"
   public let systemImage = "text.viewfinder"
@@ -55,7 +56,8 @@ public struct OCROperation: PDFOperation {
         id: Self.dpiOptionID, label: "Resolution", choices: Self.dpiChoices, defaultValue: "200"),
       OperationOption(
         id: Self.levelOptionID, label: "Quality",
-        choices: [("accurate", "Accurate (slower)"), ("fast", "Fast")], defaultValue: "accurate"),
+        choices: [("accurate", "Accurate (slower)"), ("fast", "Fast (less accurate)")],
+        defaultValue: "accurate"),
     ]
   }
 
@@ -98,7 +100,7 @@ public struct OCROperation: PDFOperation {
     }
 
     guard !confidences.isEmpty else {
-      return .skipped(reason: "No text recognized (\(total) pages scanned)")
+      return .skipped(reason: "No text recognized — pages may be blank or too low quality to read")
     }
 
     let combined = Self.combine(pageBlocks)
@@ -129,11 +131,17 @@ public struct OCROperation: PDFOperation {
     try fm.moveItem(at: partial, to: output)
     progress(1)
 
+    // Ham güven skoru (0...1) kullanıcıya bir şey ifade etmez — üç anlamlı kovaya çevrilir (bkz.
+    // görev tanımı: "engine'in ölçtüğünü değil kullanıcının belgesine olanı raporla").
     let avgConfidence = confidences.reduce(0, +) / Float(confidences.count)
-    var noteParts = [
-      "\(total) pages, \(confidences.count) lines, average confidence "
-        + String(format: "%.2f", avgConfidence)
-    ]
+    var noteParts: [String]
+    if avgConfidence < 0.6 {
+      noteParts = ["Text recognized — accuracy is low, review carefully"]
+    } else if avgConfidence < 0.85 {
+      noteParts = ["Text recognized — some words may be misread"]
+    } else {
+      noteParts = ["Text recognized"]
+    }
     let requestsTurkish = languageKey == "tr" || languageKey == "auto"
     if requestsTurkish {
       // İKİ BAĞIMSIZ sinyal — bkz. `OCRVerification.turkishSupportDegraded` dosya üstü CI ölçümü:

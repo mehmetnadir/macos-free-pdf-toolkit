@@ -45,6 +45,9 @@ final class AppModel {
   var isShowingPageGridEditor = false
   private(set) var pageGridTargetID: FileItem.ID?
 
+  /// Son koşunun çıktı hedefi — "Show Folder" düğmesi ve hedef açıklaması bunu okur.
+  private(set) var lastDestination: OutputDestination?
+
   private var runTask: Task<Void, Never>?
   /// Kullanıcı bir eylem kartına ELLE dokundu mu (bkz. `selectOperation`) — dokunduysa
   /// `recomputeSuggestedOperation()` artık `selectedOperationID`'yi EZMEZ. Liste tamamen
@@ -223,7 +226,17 @@ final class AppModel {
     for option in op.options {
       resolvedOptions[option.id] = optionValues[selectedOperationID]?[option.id] ?? option.defaultValue
     }
-    let context = OperationContext(password: password.isEmpty ? nil : password, options: resolvedOptions)
+    // Çıktı hedefi koşudan ÖNCE seçilir: üst-düzey çıktı sayısı 1'den fazlaysa orijinalin
+    // yanında toplu klasör açılır (bkz. OutputPlacement.resolve).
+    let pendingInfos = items.filter { $0.status.isPending }.map(\.info)
+    let expectedOutputs = op.arity == .combined ? 1 : pendingInfos.count
+    let destination = OutputPlacement.resolve(
+      inputs: pendingInfos.map(\.url), operationTitle: op.title,
+      expectedTopLevelOutputs: expectedOutputs)
+    lastDestination = destination
+    let context = OperationContext(
+      password: password.isEmpty ? nil : password, outputDirectory: destination.directory,
+      options: resolvedOptions)
     isRunning = true
     runTask = Task {
       defer {
@@ -281,7 +294,34 @@ final class AppModel {
           for id in pendingIDs { update(id, .failed(error.localizedDescription)) }
         }
       }
-      if !Task.isCancelled { NSSound(named: "Glass")?.play() }
+      if !Task.isCancelled {
+        NSSound(named: "Glass")?.play()
+        finishRun(destination: destination)
+      }
+    }
+  }
+
+  /// Koşu bittiğinde çağrılır. Hiç çıktı üretilmediyse bu koşuda açılan boş toplu klasörü geri
+  /// alır; üretildiyse Finder'ı YALNIZCA uygulama hâlâ öndeyse açar.
+  ///
+  /// Odak asla çalınmaz (bkz. `.claude/CLAUDE.md`): kullanıcı bu sırada başka bir işe geçtiyse
+  /// Finder penceresini yüzüne açmak işini böler. O durumda Dock ikonu bir kez zıplar ve sonuç
+  /// satırındaki "Show" düğmesi kullanıcıyı bekler. Bildirim izni İSTENMEZ — ilk açılışta izin
+  /// sormak bu küçük araç için orantısız.
+  private func finishRun(destination: OutputDestination) {
+    let produced = items.flatMap { item -> [URL] in
+      if case .done(let urls, _) = item.status { return urls }
+      return []
+    }
+    guard !produced.isEmpty else {
+      OutputPlacement.discardIfEmpty(destination)
+      return
+    }
+    if NSApp.isActive {
+      let target = destination.batchFolderName == nil ? produced : [destination.directory]
+      NSWorkspace.shared.activateFileViewerSelecting(target)
+    } else {
+      NSApp.requestUserAttention(.informationalRequest)
     }
   }
 
@@ -330,7 +370,14 @@ final class AppModel {
       } catch {
         update(targetID, .failed(error.localizedDescription))
       }
-      if !Task.isCancelled { NSSound(named: "Glass")?.play() }
+      if !Task.isCancelled {
+        NSSound(named: "Glass")?.play()
+        // Sayfa Düzenle tek dosya üretir: toplu klasör yok, çıktı orijinalin yanında.
+        finishRun(
+          destination: OutputDestination(
+            directory: info.url.deletingLastPathComponent(), batchFolderName: nil,
+            usedFallback: false, note: nil))
+      }
     }
   }
 

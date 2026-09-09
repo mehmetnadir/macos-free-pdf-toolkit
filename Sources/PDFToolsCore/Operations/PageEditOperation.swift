@@ -27,6 +27,7 @@ public struct PageEditOperation: PDFOperation {
   public let systemImage = "square.grid.2x2"
   public let actionTitle = "Apply Pages"
   public let outputSuffix = "_pages"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   /// `OperationContext.options` anahtarı: tutulacak sayfaların 1-tabanlı KAYNAK numaraları, istenen
   /// ÇIKTI sırasında, virgülle (`"3,1,2,5"`). Boşsa/eksikse tüm sayfalar kaynak sırasıyla tutulur.

@@ -88,6 +88,7 @@ public struct WatermarkRemoveOperation: PDFOperation {
   public let systemImage = "eraser"
   public let actionTitle = "Remove Watermark"
   public let outputSuffix = "_clean"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   /// Bir Form XObject'in sayfaların EN AZ bu oranında geçmesi "tekrarlayan filigran" adayı
   /// saymak için yeterli sayılır (bkz. yol haritası §1.4 — gerçek kitapta 143/144 ≈ %99,3).

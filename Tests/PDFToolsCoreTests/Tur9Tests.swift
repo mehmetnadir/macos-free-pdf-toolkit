@@ -174,11 +174,10 @@ final class Tur9Tests: XCTestCase {
     XCTAssertTrue(normalizedTurkishContains(text, "güç"), "güç okunamadı: \(text)")
     XCTAssertTrue(
       normalizedTurkishContains(text, "İSTİKLAL"), "İSTİKLAL okunamadı: \(text)")
-    // Kanıt 3: not, sayfa/satır/güven bilgisi ve Türkçe İ/I uyarısını içeriyor.
+    // Kanıt 3: not, tanıma sonucunu (jargonsuz, kullanıcı diliyle) ve Türkçe İ/I uyarısını içeriyor.
     guard let note else { return XCTFail("not boş") }
-    XCTAssertTrue(note.contains("1 pages"), "not sayfa sayısını içermiyor: \(note)")
     XCTAssertTrue(
-      note.localizedCaseInsensitiveContains("confidence"), "not güven bilgisi içermiyor: \(note)")
+      note.contains("Text recognized"), "not tanıma sonucunu içermiyor: \(note)")
     XCTAssertTrue(note.contains("İ"), "Türkçe İ/I uyarısı yok: \(note)")
     // Kanıt 4 (tutarlılık): üretim kodunun KENDİ bozukluk teşhisi ile notta gösterilen uyarı
     // birbirini tutmalı — CI'da tr-TR yokken bu testin sessizce yanlış geçmesini önleyen asıl
@@ -260,15 +259,17 @@ final class Tur9Tests: XCTestCase {
       note.contains("already has a text layer"), "metin katmanı uyarısı yok: \(note)")
   }
 
-  // MARK: - 3. OCR: boş/beyaz sayfada skip + taranan sayfa sayısı
+  // MARK: - 3. OCR: boş/beyaz sayfada skip
 
-  func testOCRSkipsBlankPagesAndReportsScannedCount() async throws {
+  func testOCRSkipsBlankPages() async throws {
     let dir = try makeTempDirectory()
     let source = dir.appendingPathComponent("bos.pdf")
     Self.makeBlankFixture(pageCount: 3, to: source)
     let outcome = try await OCROperation().run(
       file: PDFFileInfo.inspect(source), context: OperationContext(outputDirectory: dir)) { _ in }
-    XCTAssertEqual(outcome, .skipped(reason: "No text recognized (3 pages scanned)"))
+    XCTAssertEqual(
+      outcome,
+      .skipped(reason: "No text recognized — pages may be blank or too low quality to read"))
   }
 
   // MARK: - 4. Aranabilir PDF: PDFKit ile metin çıkarılabiliyor

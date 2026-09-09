@@ -21,6 +21,7 @@ public struct QRAddOperation: PDFOperation {
   public let systemImage = "qrcode"
   public let actionTitle = "Add QR"
   public let outputSuffix = "_qr"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   /// `OperationContext.options` anahtarı: QR'a kodlanacak serbest metin. Boşsa/verilmemişse
   /// `QRError.contentRequired` fırlatılır.

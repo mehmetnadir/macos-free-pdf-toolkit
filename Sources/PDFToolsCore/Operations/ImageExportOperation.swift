@@ -32,6 +32,7 @@ public struct ImageExportOperation: PDFOperation {
   public let systemImage = "photo.on.rectangle"
   public let actionTitle = "PDF to Images"
   public let outputSuffix = "_images"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   public static let formatOptionID = "format"
   public static let dpiOptionID = "dpi"
@@ -46,8 +47,12 @@ public struct ImageExportOperation: PDFOperation {
   }
 
   public var options: [OperationOption] {
-    var formatChoices: [(value: String, label: String)] = [("png", "PNG"), ("jpeg", "JPEG")]
-    if Self.heicWriteSupported { formatChoices.append(("heic", "HEIC")) }
+    var formatChoices: [(value: String, label: String)] = [
+      ("png", "PNG — lossless, larger files"), ("jpeg", "JPEG — smaller files, some quality loss"),
+    ]
+    if Self.heicWriteSupported {
+      formatChoices.append(("heic", "HEIC — smallest files, needs newer viewers"))
+    }
     return [
       OperationOption(
         id: Self.formatOptionID, label: "Format", choices: formatChoices, defaultValue: "png"),

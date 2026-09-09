@@ -193,7 +193,7 @@ final class Tur5Tests: XCTestCase {
     else { return XCTFail("QR ayıklama çıktı üretmedi: \(extractOutcome)") }
 
     XCTAssertEqual(textFile.lastPathComponent, "kitap_qr_qr.txt")
-    XCTAssertEqual(note, "Found 3 QR codes across 3 pages")
+    XCTAssertEqual(note, "3 QR codes found")
 
     let text = try String(contentsOf: textFile, encoding: .utf8)
     let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
@@ -206,7 +206,7 @@ final class Tur5Tests: XCTestCase {
     }
   }
 
-  // MARK: - 6. QR'sız dosyada skip + taranan sayfa sayısı
+  // MARK: - 6. QR'sız dosyada skip
 
   func testQRExtractSkipsWhenNoQRFound() async throws {
     let dir = try makeTempDirectory()
@@ -214,7 +214,7 @@ final class Tur5Tests: XCTestCase {
     Self.makeMultiPageFixture(pageCount: 4, to: source)
     let outcome = try await QRExtractOperation().run(
       file: PDFFileInfo.inspect(source), context: OperationContext(outputDirectory: dir)) { _ in }
-    XCTAssertEqual(outcome, .skipped(reason: "No QR codes found (4 pages scanned)"))
+    XCTAssertEqual(outcome, .skipped(reason: "No QR codes found"))
   }
 
   // MARK: - 7. Türkçe karakter + uzun (200+ karakter) içerik

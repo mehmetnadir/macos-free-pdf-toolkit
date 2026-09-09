@@ -43,6 +43,7 @@ public struct CompressOperation: PDFOperation {
   public let systemImage = "arrow.down.circle"
   public let actionTitle = "Compress"
   public let outputSuffix = "_compressed"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   public static let levelOptionID = "level"
   public static let dpiOptionID = "dpi"
@@ -72,7 +73,10 @@ public struct CompressOperation: PDFOperation {
         defaultValue: "150"),
       OperationOption(
         id: Self.qualityOptionID, label: "Quality (Rasterize)",
-        choices: [("0.5", "Low"), ("0.7", "Medium"), ("0.85", "High")],
+        choices: [
+          ("0.5", "Low — smallest files"), ("0.7", "Medium — balanced"),
+          ("0.85", "High — best quality, larger files"),
+        ],
         defaultValue: "0.7"),
     ]
   }

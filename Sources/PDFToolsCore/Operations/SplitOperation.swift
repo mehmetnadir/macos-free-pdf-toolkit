@@ -14,6 +14,7 @@ public struct SplitOperation: PDFOperation {
   public let systemImage = "scissors"
   public let actionTitle = "Split"
   public let outputSuffix = "_parts"
+  public var outputSuffixes: [String] { [outputSuffix] }
 
   public static let modeOptionID = "mode"
   public static let pageCountOptionID = "n"

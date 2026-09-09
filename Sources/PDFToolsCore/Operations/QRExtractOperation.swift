@@ -8,8 +8,9 @@ import Foundation
 /// ÖLÇÜLMÜŞ KRİTİK BULGU (bkz. `QRVerification` tip yorumu, gerçek üretim kitabı
 /// https://yds.tc/ydsdigital): Vision'ın QR tespiti 100 dpi'da bu kitapta SESSİZCE 0 QR buldu —
 /// "QR yok" ile "bakılamadı" ayırt edilemez sonuç. Bu yüzden varsayılan 200 dpi'dır ve seçeneklerde
-/// 100 dpi HİÇ sunulmaz. Sonuç notunda ("N sayfada M QR bulundu") ve `.skipped` mesajında
-/// ("bulunamadı" ile "bakılmadı" karışmasın diye) TARANAN sayfa sayısı da bulunur.
+/// 100 dpi HİÇ sunulmaz — "bulunamadı" ile "bakılmadı" karışmaması BU seçimle sağlanır, kullanıcıya
+/// gösterilen sonuç/`.skipped` metninde artık taranan sayfa sayısı YOK (bkz. wording turu: sayı
+/// kullanıcı için eyleme dönüştürülemiyordu).
 ///
 /// Bellek: büyük kitaplarda (200+ sayfa) sayfa başına TEK render bitmap tutulur — döngü içindeki
 /// `QRVerification.detections` çağrısının sonucu bir sonraki sayfaya geçmeden ARC ile serbest kalır
@@ -17,6 +18,7 @@ import Foundation
 public struct QRExtractOperation: PDFOperation {
   public static let identifier = "qrextract"
   public let id = QRExtractOperation.identifier
+  public var outputSuffixes: [String] { ["_qr"] }
   public let title = "Extract QR"
   public let subtitle = "Lists the QR codes on the pages and writes them to a text file"
   public let systemImage = "qrcode.viewfinder"
@@ -48,7 +50,7 @@ public struct QRExtractOperation: PDFOperation {
     case .restricted, .none: break
     }
     guard file.pageCount > 0 else {
-      return .skipped(reason: "No pages (0 pages scanned)")
+      return .skipped(reason: "No pages")
     }
 
     let dpi = CGFloat(Double(context.options[Self.dpiOptionID] ?? "200") ?? 200)
@@ -71,7 +73,7 @@ public struct QRExtractOperation: PDFOperation {
     }
 
     guard found > 0 else {
-      return .skipped(reason: "No QR codes found (\(total) pages scanned)")
+      return .skipped(reason: "No QR codes found")
     }
 
     let output = Self.uniqueTextOutputURL(for: file.url, in: context.outputDirectory)
@@ -81,7 +83,7 @@ public struct QRExtractOperation: PDFOperation {
     }
     try data.write(to: output, options: .atomic)
     progress(1)
-    return .produced(urls: [output], note: "Found \(found) QR codes across \(total) pages")
+    return .produced(urls: [output], note: "\(found) QR codes found")
   }
 
   /// `<ad>_qr.txt` biçiminde, çakışmaya karşı korumalı bir çıktı yolu üretir.
