@@ -5,6 +5,22 @@ struct ContentView: View {
   @Environment(AppModel.self) private var model
   @State private var isDropTargeted = false
 
+  /// Arayüz dosya sayısına göre BÜYÜR (Nadir, 2026-09-09): 20 dosya bırakıp tek satırlık bir
+  /// listeye bakmak, bıraktığın şeyi göremediğin için güven kırıcı. Liste satır yüksekliği ×
+  /// dosya sayısı kadar yer ister, pencerenin asgari yüksekliği de onunla birlikte artar
+  /// (`.windowResizability(.contentMinSize)` sayesinde pencere kendiliğinden büyür).
+  /// Üst sınır var: ekranı dolduran bir pencere de kullanışsız.
+  private static let rowHeight: CGFloat = 46
+  private static let maxVisibleRows = 8
+  private static let baseHeight: CGFloat = 480
+
+  private var visibleRows: Int { min(max(model.items.count, 1), Self.maxVisibleRows) }
+  /// Liste tam olarak bu kadar yer kaplar; 8 dosyadan sonrası listenin kendi kaydırmasıyla.
+  private var fileAreaHeight: CGFloat { CGFloat(visibleRows) * Self.rowHeight + 12 }
+  private var windowMinHeight: CGFloat {
+    Self.baseHeight + CGFloat(visibleRows - 1) * Self.rowHeight
+  }
+
   var body: some View {
     @Bindable var model = model
     VStack(spacing: 0) {
@@ -21,12 +37,19 @@ struct ContentView: View {
 
       Group {
         if model.items.isEmpty {
+          // Boş ekran esnek: bırakma alanı pencereyi doldurur.
           DropZoneView(isTargeted: isDropTargeted) { model.pickFiles() }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
+          // Liste yüksekliği dosya SAYISINA bağlı ve KESİN: esnek bırakılırsa iki uçtan
+          // birine düşüyor — ya kartlar listeyi tek satıra eziyor (ölçüldü 2026-09-09),
+          // ya da listeye öncelik verilince kartlar tamamen kayboluyor (aynı gün, ikinci
+          // ölçüm). Kesin yükseklik ikisini de kapatır; artan alan kartlara gider.
           FileListView()
+            .frame(height: fileAreaHeight)
+            .frame(maxWidth: .infinity)
         }
       }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
       .overlay {
         if isDropTargeted && !model.items.isEmpty {
           RoundedRectangle(cornerRadius: 10)
@@ -39,12 +62,13 @@ struct ContentView: View {
       Divider()
       // Eylem kartları: uygulanabilirliğe dayalı seçim (İşlem Picker'ının yerini alır, bkz.
       // `.claude/CLAUDE.md` Tur 3). Seçili kartın seçenekleri (varsa) hemen altında.
-      ActionCardsView()
+      ScrollView { ActionCardsView() }
+        .frame(maxHeight: .infinity)
       OperationOptionsRow()
       Divider()
       ActionBar()
     }
-    .frame(minWidth: 640, minHeight: 480)
+    .frame(minWidth: 640, minHeight: windowMinHeight)
     .dropDestination(for: URL.self) { urls, _ in
       Task { await model.add(urls: urls) }
       return true
@@ -494,11 +518,25 @@ struct ActionBar: View {
     return "Saved next to the original"
   }
 
-  /// Solda tek durum metni: özet (bitti/hata sayısı) → motor uyarısı → inceleniyor. Dosya sayısı
-  /// ayrıca burada YAZILMAZ — ön analiz satırı zaten gösteriyor (bkz. `AppModel.analysisSummary`).
+  /// Solda tek durum metni: koşarken genel ilerleme → özet (bitti/hata sayısı) → motor uyarısı
+  /// → inceleniyor. Dosya sayısı ayrıca burada YAZILMAZ — ön analiz satırı zaten gösteriyor
+  /// (bkz. `AppModel.analysisSummary`).
   @ViewBuilder
   private var statusView: some View {
-    if let summary = model.summary {
+    if let progress = model.batchProgress {
+      HStack(spacing: 8) {
+        ProgressView(value: progress.fraction).frame(width: 120)
+        // Tek dosyada "1 of 1" demek gürültü; sayı yalnız gerçekten toplu işte anlamlı.
+        if progress.total > 1 {
+          Text("\(progress.completed) of \(progress.total)")
+            .font(.callout.monospacedDigit())
+        }
+        Text("\(Int(progress.fraction * 100))%")
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(.secondary)
+      }
+      .foregroundStyle(.secondary)
+    } else if let summary = model.summary {
       Text(summary).font(.callout).foregroundStyle(.secondary)
     } else if !model.hasRequiredEngine {
       Label(model.missingEngineMessage, systemImage: "exclamationmark.triangle")

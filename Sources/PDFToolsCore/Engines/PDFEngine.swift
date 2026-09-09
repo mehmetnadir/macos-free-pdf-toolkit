@@ -68,6 +68,9 @@ public struct PDFCPUEngine: PDFEngine {
     input: URL, output: URL, password: String?,
     progress: @escaping @Sendable (Double) -> Void
   ) async throws {
+    // pdfcpu'nun ilerleme bayrağı YOK — ara değer UYDURULMAZ (sahte ilerleme yanıltır).
+    // Yalnızca başladı/bitti uç noktaları bildirilir.
+    progress(0)
     var arguments = ["decrypt"]
     if let password, !password.isEmpty { arguments += ["--upw", password, "--opw", password] }
     arguments += [input.path, output.path]
@@ -77,5 +80,6 @@ public struct PDFCPUEngine: PDFEngine {
       if combined.contains("password") { throw EngineError.wrongPassword }
       throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
     }
+    progress(1)
   }
 }

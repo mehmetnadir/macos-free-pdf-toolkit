@@ -26,6 +26,14 @@ final class AppModel {
     var status: ItemStatus = .pending
   }
 
+  /// Toplu koşunun genel ilerlemesi (bkz. `batchProgress`). Dosya BAŞINA ilerleme satırda
+  /// zaten görünüyor; bu, "20 dosyanın kaçındayım" sorusunu cevaplar.
+  struct BatchProgress: Equatable {
+    let completed: Int
+    let total: Int
+    let fraction: Double
+  }
+
   var items: [FileItem] = []
   var selectedOperationID: String = UnlockOperation.identifier
   var password: String = ""
@@ -47,6 +55,9 @@ final class AppModel {
 
   /// Son koşunun çıktı hedefi — "Show Folder" düğmesi ve hedef açıklaması bunu okur.
   private(set) var lastDestination: OutputDestination?
+  /// Bu koşuda işlenen dosyaların kimlikleri. Genel ilerleme yalnız BUNLARA bakar — listede
+  /// önceki koşulardan kalan `.done` öğeler sayıma karışmamalı.
+  private(set) var runIDs: [FileItem.ID] = []
 
   private var runTask: Task<Void, Never>?
   /// Kullanıcı bir eylem kartına ELLE dokundu mu (bkz. `selectOperation`) — dokunduysa
@@ -213,6 +224,30 @@ final class AppModel {
     Task { await add(urls: urls) }
   }
 
+  /// Koşu sürerken genel ilerleme; koşu yokken `nil`.
+  ///
+  /// `.combined` (Birleştir) kipinde tüm dosyalar aynı anda aynı kesirle `.running` olur:
+  /// toplam N, uçuştaki kesir ≈ N × f, tamamlanan 0 → sonuç ≈ f. Yani aynı formül iki kip
+  /// için de doğru sonucu verir, ayrı dal gerekmiyor.
+  var batchProgress: BatchProgress? {
+    guard isRunning, !runIDs.isEmpty else { return nil }
+    var completed = 0
+    var inFlight: [Double] = []
+    for id in runIDs {
+      guard let item = items.first(where: { $0.id == id }) else { continue }
+      switch item.status {
+      case .done, .skipped, .failed: completed += 1
+      case .running(let fraction): inFlight.append(fraction ?? 0)
+      case .pending: break
+      }
+    }
+    let total = runIDs.count
+    return BatchProgress(
+      completed: completed, total: total,
+      fraction: BatchProgressMath.fraction(
+        completed: completed, inFlight: inFlight, total: total))
+  }
+
   func reveal(_ url: URL) {
     NSWorkspace.shared.activateFileViewerSelecting([url])
   }
@@ -244,6 +279,7 @@ final class AppModel {
         runTask = nil
       }
       let pendingIDs = items.filter { $0.status.isPending }.map(\.id)
+      self.runIDs = pendingIDs
       switch op.arity {
       case .perFile:
         for id in pendingIDs {
@@ -351,6 +387,7 @@ final class AppModel {
     let context = OperationContext(options: options)
 
     isRunning = true
+    runIDs = [targetID]
     update(targetID, .running(nil))
     runTask = Task {
       defer {
