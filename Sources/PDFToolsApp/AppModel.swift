@@ -51,6 +51,8 @@ final class AppModel {
   let thumbnailCache = PageThumbnailCache()
   /// "Sayfa Düzenle" ızgara sheet'i açık mı ve hangi dosya için (bkz. `beginPageEdit`).
   var isShowingPageGridEditor = false
+  /// Kurulum yönlendirme sayfası açık mı ve hangi araç için (bkz. `ToolSetupSheet`).
+  var pendingToolRequirement: ToolRequirement?
   private(set) var pageGridTargetID: FileItem.ID?
 
   /// Son koşunun çıktı hedefi — "Show Folder" düğmesi ve hedef açıklaması bunu okur.
@@ -96,6 +98,22 @@ final class AppModel {
   /// Görüntüye Aktar hiç alt süreç kullanmaz (yerleşik CoreGraphics/ImageIO) — motor gerektirmez.
   private var isImageExportSelected: Bool { selectedOperationID == ImageExportOperation.identifier }
   /// Seçili işlem için gereken motor kurulu mu.
+  /// Ghostscript ŞU AN kurulu mu. Saklanmaz, her sorulduğunda yeniden ölçülür: kullanıcı
+  /// uygulama açıkken Terminal'den kurabiliyor ve "Check Again" bunun üstüne kurulu.
+  /// `CompressOperation` ile AYNI kaynağa bakar — iki ayrı arama listesi tutmuyoruz.
+  var hasGhostscript: Bool { EngineLocator.ghostscript() != nil }
+
+  /// Seçili işlem + seçili seçenek, kurulu olmayan bir dış araç gerektiriyor mu?
+  /// Şimdilik tek vaka: Sıkıştır'ın "strong" kademesi. Kart soluk DEĞİL — kullanıcı seçebilsin
+  /// ve ne yapması gerektiğini öğrensin; engel çalıştırma anında değil, burada anlatılıyor.
+  var missingToolForCurrentSelection: ToolRequirement? {
+    guard selectedOperationID == CompressOperation.identifier else { return nil }
+    let level = optionValues[selectedOperationID]?[CompressOperation.levelOptionID]
+      ?? CompressOperation().options.first?.defaultValue
+    guard level == "strong", !hasGhostscript else { return nil }
+    return .ghostscript
+  }
+
   var hasRequiredEngine: Bool {
     if isTrimSelected { return hasTrimEngine }
     if requiresQPDFOnly { return hasQPDF }

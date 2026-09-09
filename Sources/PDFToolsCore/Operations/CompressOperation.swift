@@ -106,9 +106,10 @@ public struct CompressOperation: PDFOperation {
     do {
       switch level {
       case "strong":
-        // Yalnız yolu al — `GhostscriptEngine.trim` farklı bir çağrı (`-dUseTrimBox`) yapar,
-        // burada YENİDEN KULLANILMAZ.
-        guard let trimEngine = EngineLocator.trimEngine() else {
+        // Ham gs ikilisinin yolu. `trimEngine()` ARTIK KULLANILMAZ: o kesim MOTOR TERCİHİNİ
+        // döndürüyor (CoreGraphics) ve çalıştırılabilir bir ikili değil — oradan yol almak
+        // sahte bir alt-süreç çağırmaya yol açardı.
+        guard let gs = EngineLocator.ghostscript() else {
           throw OperationError.engineMissing("Ghostscript required: brew install ghostscript")
         }
         progress(0)
@@ -119,7 +120,7 @@ public struct CompressOperation: PDFOperation {
           "-dBATCH", "-dNOPAUSE",
           file.url.path,
         ]
-        let result = try await ProcessRunner.run(trimEngine.executable, arguments: arguments)
+        let result = try await ProcessRunner.run(gs, arguments: arguments)
         guard result.status == 0 else {
           throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
         }

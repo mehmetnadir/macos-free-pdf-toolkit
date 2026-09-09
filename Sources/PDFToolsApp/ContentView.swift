@@ -73,6 +73,12 @@ struct ContentView: View {
       Task { await model.add(urls: urls) }
       return true
     } isTargeted: { isDropTargeted = $0 }
+    .sheet(item: $model.pendingToolRequirement) { requirement in
+      ToolSetupSheet(
+        requirement: requirement,
+        recheck: { model.hasGhostscript },
+        onClose: { model.pendingToolRequirement = nil })
+    }
     .sheet(isPresented: $model.isShowingPageGridEditor) {
       if let target = model.pageGridTargetItem {
         PageGridView(
@@ -456,6 +462,18 @@ struct OperationOptionsRow: View {
           }
           .controlSize(.small)
           .fixedSize()
+          .disabled(model.isRunning)
+        }
+        // Kurulu olmayan dış araç: kullanıcı SEÇEBİLİYOR ama neyin eksik olduğunu ve ne
+        // yapacağını burada, çalıştırmadan ÖNCE öğreniyor. Eskiden bu ancak "Run"a bastıktan
+        // sonra bir hata satırı olarak çıkıyordu.
+        if let requirement = model.missingToolForCurrentSelection {
+          Button {
+            model.pendingToolRequirement = requirement
+          } label: {
+            Label("\(requirement.name) needed — set up", systemImage: "arrow.down.circle")
+          }
+          .controlSize(.small)
           .disabled(model.isRunning)
         }
         Spacer()

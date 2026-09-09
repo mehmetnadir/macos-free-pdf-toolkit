@@ -58,11 +58,26 @@ public enum EngineLocator {
     extraDirectories + ["/opt/homebrew/bin", "/usr/local/bin"].map { URL(fileURLWithPath: $0) }
   }
 
+  /// Kesim (trim) için TERCİH EDİLEN motor. VARSAYILAN: `CoreGraphicsTrimEngine` — alt-süreç
+  /// gerektirmez, macOS'ta HER ZAMAN mevcuttur (ölçüm ve gerekçe: `CoreGraphicsTrimEngine.swift`
+  /// dosya üstü yorumu — gs kadar temiz, ondan daha sadık, lisans sorunu yok). Bu yüzden bu
+  /// fonksiyon artık PRATİKTE HİÇ `nil` DÖNMEZ; `gs` yedek olarak hâlâ KULLANILABİLİR ama buradan
+  /// DÖNMÜYOR — ham `gs` ikilisinin yoluna ihtiyaç duyan çağıranlar (ör. `CompressOperation`'ın
+  /// kendi `gs -dPDFSETTINGS=/ebook` çağrısı) `ghostscript()`'i kullanmalı.
   public static func trimEngine() -> (any TrimEngine)? {
+    CoreGraphicsTrimEngine()
+  }
+
+  /// Ghostscript ikilisinin KENDİ yolu — yalnızca `gs`'i doğrudan bir alt-süreç olarak çalıştırmak
+  /// isteyen çağıranlar için (ör. `CompressOperation`). `trimEngine()`'den BİLEREK AYRI: o artık
+  /// kesim MOTOR TERCİHİNİ (CoreGraphics) döndürüyor, ham gs ikili yolunu değil. gs kurulu
+  /// değilse `nil` — arama sırası `gsSearchDirectories()` ile aynı (yalnız test override'ı +
+  /// Homebrew yolları; gs asla pakete gömülmez, bkz. `GhostscriptEngine.swift`).
+  public static func ghostscript() -> URL? {
     for dir in gsSearchDirectories() {
       let candidate = dir.appendingPathComponent("gs")
       if FileManager.default.isExecutableFile(atPath: candidate.path) {
-        return GhostscriptEngine(executable: candidate)
+        return candidate
       }
     }
     return nil

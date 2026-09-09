@@ -50,9 +50,19 @@ public struct TrimOperation: PDFOperation {
       return .skipped(reason: "No bleed margin found")
     }
 
-    guard let engine = EngineLocator.trimEngine() else {
-      throw OperationError.engineMissing("Ghostscript required: brew install ghostscript")
-    }
+    // MOTOR SEÇİMİ DOSYAYA GÖRE (2026-09-09, ölçümle):
+    // CoreGraphics daha sadık kesiyor (piksel farkı 0,03/255, gs 4,02/255), kurulum
+    // gerektirmiyor ve lisans sorunu yok — ama sayfayı yeniden çizerek kestiği için
+    // AÇIKLAMALARI (bağlantı, form alanı) tamamen kaybediyor (24/24 kayıp ölçüldü).
+    // Bu yüzden: açıklaması olan dosyada, kuruluysa, Ghostscript tercih edilir.
+    // Açıklama yoksa CoreGraphics her bakımdan üstün.
+    let annotationCount = PDFAnnotations.count(in: file.url)
+    let ghostscript = annotationCount > 0 ? EngineLocator.ghostscript() : nil
+    let engine: any TrimEngine =
+      ghostscript.map { GhostscriptEngine(executable: $0) } ?? CoreGraphicsTrimEngine()
+    // Açıklama var ama gs yok: iş yine yapılır, ancak kaybın SÖYLENMESİ şart — sessizce
+    // bağlantıları silmek, kullanıcının aylar sonra fark edeceği bir hasardır.
+    let annotationsWillBeLost = annotationCount > 0 && ghostscript == nil
 
     let output = OutputNaming.uniqueURL(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
     // gs de çıktı adında uzantı bekler; diğer işlemlerle tutarlı gizli-ama-.pdf-uzantılı ad.
@@ -87,6 +97,11 @@ public struct TrimOperation: PDFOperation {
     }
     if !PDFFileInfo.trimBoxIsConsistent(output) {
       notes.append("bleed margin is inconsistent across pages")
+    }
+    if annotationsWillBeLost {
+      notes.append(
+        "\(annotationCount) links or form fields could not be kept — install Ghostscript to "
+          + "preserve them")
     }
     return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
   }
