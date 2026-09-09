@@ -72,3 +72,30 @@ if [ "$SIGN_IDENTITY" = "-" ]; then
   echo "NOT: ad-hoc imza. Dağıtım için: SIGN_IDENTITY=\"Developer ID Application: ...\" ./packaging/build.sh"
   echo "     ardından ./packaging/notarize.sh (tek tıkla açılması için notarization şart)."
 fi
+
+echo "=== 7. Açılış duman testi ==="
+# "Süreç ayakta ama HİÇ pencere yok" arızası sessizdir: çökme yok, log yok, uygulama
+# olay döngüsünde boşta bekler (ölçüldü 2026-09-09 — AppKit'in açılıştaki pencere-restore
+# yarışı; ayrıntı .claude/docs/yol-haritasi-2026-09.md). Bu yüzden paketi GERÇEKTEN açıp
+# pencere sayıyoruz. `open -g` kullanıcının odağını çalmaz.
+if [ -n "${PDFTOOLS_SKIP_SMOKE:-}" ]; then
+  echo "atlandı (PDFTOOLS_SKIP_SMOKE)"
+elif [ "$(launchctl managername 2>/dev/null)" != "Aqua" ]; then
+  echo "atlandı: GUI oturumu yok (SSH/CI) — pencere testi yalnız masaüstünde anlamlı"
+else
+  open -g -n "$APP"
+  sleep 6
+  SMOKE_PID="$(pgrep -f "$APP/Contents/MacOS/PDFToolsApp" | head -1)"
+  if [ -z "$SMOKE_PID" ]; then
+    echo "HATA: uygulama açılmadı (süreç yok)" >&2
+    exit 1
+  fi
+  WINDOWS="$(swift packaging/window-count.swift "$SMOKE_PID" 2>/dev/null || echo 0)"
+  kill "$SMOKE_PID" 2>/dev/null || true
+  if [ "$WINDOWS" -lt 1 ]; then
+    echo "HATA: uygulama açıldı ama HİÇ pencere kurmadı (kurtarma ağı da devreye girmedi)." >&2
+    echo "      Bkz. AppDelegate.applicationDidFinishLaunching güvenlik ağı." >&2
+    exit 1
+  fi
+  echo "pencere sayısı: $WINDOWS ✓"
+fi
