@@ -51,6 +51,10 @@ final class AppModel {
   let thumbnailCache = PageThumbnailCache()
   /// "Sayfa Düzenle" ızgara sheet'i açık mı ve hangi dosya için (bkz. `beginPageEdit`).
   var isShowingPageGridEditor = false
+  /// "Boş PDF oluştur" formu açık mı.
+  var isShowingBlankPDF = false
+  /// Oluşturma başarısız olursa kullanıcıya gösterilecek tek cümle.
+  var blankPDFError: String?
   /// Kurulum yönlendirme sayfası açık mı ve hangi araç için (bkz. `ToolSetupSheet`).
   var pendingToolRequirement: ToolRequirement?
   private(set) var pageGridTargetID: FileItem.ID?
@@ -264,6 +268,29 @@ final class AppModel {
       completed: completed, total: total,
       fraction: BatchProgressMath.fraction(
         completed: completed, inFlight: inFlight, total: total))
+  }
+
+  /// Boş PDF üretir. Diğer işlemlerde çıktı "orijinalin yanına" gider; burada orijinal YOK,
+  /// bu yüzden yeri kullanıcı seçer. Panel var olan dosya için üstüne-yazma onayını KENDİSİ
+  /// aldığından `overwrite: true` geçilir — kullanıcı kararını orada vermiştir; çekirdek yine
+  /// de önce gizli dosyaya yazıp doğruluyor, doğrulama düşerse eski dosya yerinde kalıyor.
+  ///
+  /// Üretilen dosya listeye EKLENİR: kullanıcı çoğu zaman bunu hemen bir işleme sokacak
+  /// (sayfa numarası, birleştir); Finder'dan geri sürüklemesi gereksiz bir adım olurdu.
+  func createBlankPDF(pageCount: Int, size: PageSize) {
+    isShowingBlankPDF = false
+    let panel = NSSavePanel()
+    panel.allowedContentTypes = [.pdf]
+    panel.nameFieldStringValue = "Blank.pdf"
+    panel.message = "Where should the blank PDF go?"
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    do {
+      try BlankPDF.create(pageCount: pageCount, size: size, at: url, overwrite: true)
+      Task { await add(urls: [url]) }
+      reveal(url)
+    } catch {
+      blankPDFError = error.localizedDescription
+    }
   }
 
   func reveal(_ url: URL) {

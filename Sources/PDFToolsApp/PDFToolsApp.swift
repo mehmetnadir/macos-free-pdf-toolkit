@@ -90,6 +90,8 @@ struct PDFToolsApp: App {
     .defaultSize(width: 640, height: 460)
     .commands {
       CommandGroup(replacing: .newItem) {
+        Button("New Blank PDF…") { appDelegate.model.isShowingBlankPDF = true }
+          .keyboardShortcut("n", modifiers: .command)
         Button("Add Files…") { appDelegate.model.pickFiles() }
           .keyboardShortcut("o", modifiers: .command)
         Button("Clear List") { appDelegate.model.clear() }

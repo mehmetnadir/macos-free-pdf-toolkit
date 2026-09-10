@@ -38,7 +38,9 @@ struct ContentView: View {
       Group {
         if model.items.isEmpty {
           // Boş ekran esnek: bırakma alanı pencereyi doldurur.
-          DropZoneView(isTargeted: isDropTargeted) { model.pickFiles() }
+          DropZoneView(
+            isTargeted: isDropTargeted, onPick: { model.pickFiles() },
+            onCreateBlank: { model.isShowingBlankPDF = true })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
           // Liste yüksekliği dosya SAYISINA bağlı ve KESİN: esnek bırakılırsa iki uçtan
@@ -73,6 +75,17 @@ struct ContentView: View {
       Task { await model.add(urls: urls) }
       return true
     } isTargeted: { isDropTargeted = $0 }
+    .sheet(isPresented: $model.isShowingBlankPDF) {
+      BlankPDFSheet(
+        onCreate: { pages, size in model.createBlankPDF(pageCount: pages, size: size) },
+        onCancel: { model.isShowingBlankPDF = false })
+    }
+    .alert(
+      "Could not create the PDF", isPresented: .constant(model.blankPDFError != nil),
+      presenting: model.blankPDFError
+    ) { _ in
+      Button("OK") { model.blankPDFError = nil }
+    } message: { Text($0) }
     .sheet(item: $model.pendingToolRequirement) { requirement in
       ToolSetupSheet(
         requirement: requirement,
@@ -110,6 +123,8 @@ struct ContentView: View {
 struct DropZoneView: View {
   let isTargeted: Bool
   let onPick: () -> Void
+  /// Boş PDF oluşturma: bu ekranın DOĞAL yeri, çünkü kullanıcının henüz dosyası yok.
+  let onCreateBlank: () -> Void
 
   var body: some View {
     VStack(spacing: 14) {
@@ -124,6 +139,8 @@ struct DropZoneView: View {
       Button("Choose Files…", action: onPick)
         .controlSize(.large)
         .padding(.top, 6)
+      Button("Create Blank PDF…", action: onCreateBlank)
+        .buttonStyle(.link)
       capabilitiesList
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)

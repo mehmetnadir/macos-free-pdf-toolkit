@@ -33,6 +33,8 @@ func usage() -> Never {
                           [--start-at 1] [--format plain|ofN] [--out DIR] <file.pdf|folder>...
       pdftools bookmarks [--mode export|import] [--file bookmarks.json]
                          [--out DIR] <file.pdf|folder>...
+      pdftools blank [--pages 10] [--size a4|a5|a3|letter|legal|tabloid]
+                     [--width MM --height MM] [--landscape] [--out FILE.pdf|DIR]
       pdftools engines
     """)
   exit(64)
@@ -296,6 +298,88 @@ case "watermarkadd", "pagenumber", "bookmarks":
   if command == "watermarkadd" { turOp = WatermarkAddOperation() }
   if command == "pagenumber" { turOp = PageNumberOperation() }
   exit(await runPerFile(turOp, files: turFiles, context: turContext))
+
+case "blank":
+  var pagesArgument = "1"
+  var sizeArgument = "a4"
+  var widthArgument: String?
+  var heightArgument: String?
+  var landscape = false
+  let (blankOut, blankInputs) = parseArguments(arguments) { arg, index in
+    if arg == "--pages" {
+      index += 1
+      guard index < arguments.count else { usage() }
+      pagesArgument = arguments[index]
+      return true
+    }
+    if arg == "--size" {
+      index += 1
+      guard index < arguments.count else { usage() }
+      sizeArgument = arguments[index]
+      return true
+    }
+    if arg == "--width" {
+      index += 1
+      guard index < arguments.count else { usage() }
+      widthArgument = arguments[index]
+      return true
+    }
+    if arg == "--height" {
+      index += 1
+      guard index < arguments.count else { usage() }
+      heightArgument = arguments[index]
+      return true
+    }
+    if arg == "--landscape" {
+      landscape = true
+      return true
+    }
+    return false
+  }
+  // Diğer alt komutların aksine `blank` girdi dosyası BEKLEMEZ — pozisyonel argüman varsa
+  // kullanım hatasıdır (sessizce yok saymak yerine).
+  guard blankInputs.isEmpty else { usage() }
+  guard let pageCount = Int(pagesArgument) else { usage() }
+
+  var size: PageSize
+  if let w = widthArgument, let h = heightArgument, let widthMM = Double(w), let heightMM = Double(h) {
+    // `--width`/`--height` verilirse `--size`'ı EZER.
+    size = PageSize.custom(widthMM: widthMM, heightMM: heightMM)
+  } else if widthArgument != nil || heightArgument != nil {
+    usage()
+  } else {
+    let byName: [String: PageSize] = [
+      "a4": .a4, "a5": .a5, "a3": .a3, "letter": .letter, "legal": .legal, "tabloid": .tabloid,
+    ]
+    guard let matched = byName[sizeArgument.lowercased()] else { usage() }
+    size = matched
+  }
+  if landscape { size = size.landscape() }
+
+  // `parseArguments` `--out`'u hep `isDirectory: true` ile üretir; `blank`'ta `--out` bir DOSYA
+  // da olabilir (.pdf ile bitiyorsa) — burada yeniden ayırt ediyoruz.
+  let destination: URL
+  if let blankOut {
+    let rawPath = blankOut.path
+    destination =
+      rawPath.lowercased().hasSuffix(".pdf")
+      ? URL(fileURLWithPath: rawPath, isDirectory: false)
+      : URL(fileURLWithPath: rawPath, isDirectory: true).appendingPathComponent("Blank.pdf")
+  } else {
+    destination = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+      .appendingPathComponent("Blank.pdf")
+  }
+
+  do {
+    try BlankPDF.create(pageCount: pageCount, size: size, at: destination)
+    let w = Int(size.width.rounded())
+    let h = Int(size.height.rounded())
+    print("✓ \(destination.lastPathComponent) → \(pageCount) page(s), \(w)×\(h) pt")
+    exit(0)
+  } catch {
+    print("✗ blank: \(error.localizedDescription)")
+    exit(1)
+  }
 
 case "trim":
   let (outputDirectory, inputs) = parseArguments(arguments)
