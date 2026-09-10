@@ -84,7 +84,7 @@ Gereksinimler: macOS 14+, Xcode 26 / Swift 6.3. Motor derlemesi için ek olarak
 ```bash
 ./packaging/build-engines.sh   # qpdf + pdfcpu'yu vendor/bin/'e derler (internet gerekir, tekrarlanabilir)
 swift build                    # universal derleme: swift build --arch arm64 --arch x86_64
-swift test                     # 183 test, Tests/PDFToolsCoreTests/
+swift test                     # 186 test, Tests/PDFToolsCoreTests/
 ./packaging/build.sh           # build/PDF Tools.app üretir (Developer ID imzası için SIGN_IDENTITY)
 ```
 
@@ -132,27 +132,33 @@ pdftools encrypt [--password PAROLA] [--owner-password PAROLA] \
 
 #### Trim Bleed — Kesim Payını At
 
-Her sayfayı kesim çizgisine küçültür; matbaa taşma payı böylece sayfanın parçası
-olmaktan çıkar. Kart yalnızca gerçekten kesim payı bildiren dosyalar için
-etkinleşir.
+Her sayfayı kesim çizgisine küçültür ve dışında kalanı kırpar — matbaa taşma payı
+gider, **hiçbir şey yeniden çizilmez**. Kart yalnızca gerçekten kesim payı
+bildiren dosyalar için etkinleşir.
 
 | Seçenek | Değerler | Varsayılan |
 |---|---|---|
-| Kesim çizgisi dışındaki içerik | *Kalsın — dosya yeniden yazılmaz* · *Silinsin — her sayfa yeniden çizilir* | Kalsın |
+| Kesim çizgisi dışındaki içerik | *Kırp — artık çizilemez, hiçbir şey yeniden yazılmaz* · *Kalsın — sayfalar yalnız küçültülür* · *Silinsin — her sayfa yeniden çizilir* | Kırp |
 
-**Varsayılan kip dosyayı yeniden YAZMAZ.** Yalnızca sayfa kutularını değiştirir:
-`/MediaBox` ve `/CropBox` `/TrimBox` olur; `/TrimBox`, `/BleedBox` ve `/ArtBox`
-kaldırılır, böylece dosya artık "kesim payım var" demez. İçerik akışları,
-görüntüler, fontlar, renk profilleri, açıklamalar, yer imleri ve XMP paketleri
-olduğu gibi geçer — motor pakette gelen qpdf ve onun JSON güncelleme kipi;
-hiçbir şey yeniden çizilmiyor, yeniden kodlanmıyor.
+**Varsayılan nasıl çalışıyor.** İkisi de nesne düzeyinde, ikisi de kayıpsız iki
+düzenleme: `/MediaBox` ve `/CropBox` `/TrimBox` olur (`/TrimBox`, `/BleedBox`,
+`/ArtBox` kaldırılır, böylece dosya artık "kesim payım var" demez) ve sayfanın
+içerik akışı listesinin BAŞINA bir kırpma yolu eklenir — `q <kesim kutusu> re W n`
+— sonuna da eşleşen `Q`. Var olan akışlar, görüntüler, fontlar, renk profilleri,
+açıklamalar, yer imleri ve XMP paketleri olduğu gibi kopyalanır; motor pakette
+gelen qpdf ve onun JSON güncelleme kipi. İki kırpma akışı sayfalar arasında
+paylaşıldığı için 130 sayfalık bir kitap yalnızca ~4 KB büyür.
 
-Varsayılanın böyle olmasının sebebi: eski varsayılan her sayfayı CoreGraphics
-ile yeniden çiziyordu ve baskıya hazır bir PDF'i yeniden çizmek bedelsiz değil.
-Üç gerçek yayınevi dosyasında ölçüldü (3,7 MB, 1,8 MB, 18,6 MB; 3 mm ve 5 mm
-kesim payı):
+Profesyonel araçlar da aynı düzeyde çalışıyor: Adobe Acrobat'ın Preflight
+düzeltmeleri ("remove objects outside page area") ve Enfocus PitStop'un
+*Select objects inside or outside region* → *Remove selection* / *Crop line art*
+eylemleri sayfayı rasterleştirmek yerine PDF nesnelerini düzenliyor.
 
-| | kaynak | kutu kesimi (varsayılan) | yeniden çizim |
+**Neden yeniden çizmiyoruz.** Eski varsayılan her sayfayı CoreGraphics ile
+yeniden çiziyordu. Üç gerçek yayınevi dosyasında ölçüldü (3,7 MB, 1,8 MB,
+18,6 MB; 3 mm ve 5 mm kesim payı):
+
+| | kaynak | kırp / kalsın (varsayılan) | yeniden çizim |
 |---|---|---|---|
 | 0. bayta işaret eden çapraz başvuru girdisi | 0 | **0** | **64 / 5 / 31** |
 | PDF sürümü | 1.4 / 1.4 / 1.6 | korunuyor | **1.3'e düşüyor** |
@@ -164,37 +170,47 @@ kesim payı):
 | Dosya boyutu | — | %13 … %36 küçülüyor | %37 büyüyor |
 
 Bu kırık çapraz başvuru girdileri işin yeniden yazılma sebebi: eski çıktı
-Preview'da sorunsuz açılıyordu ve eski tek kapı da "temiz" diyordu, ama katı bir
+Preview'da sorunsuz açılıyordu ve eski kapı da "temiz" diyordu, ama katı bir
 okuyucu dosyayı düpedüz reddetti: `Rebuild failed: Dictionary key 16 is not a
 name`. Bir okuyucuda açılıp diğerinde açılmayan çıktı en kötü sonuç türüdür; bu
-yüzden kesilmiş bir dosya teslim edilmeden önce **dört bağımsız kapıdan** geçmek
-zorunda — herhangi biri düşerse çıktı silinir:
+yüzden kesilmiş bir dosya artık **beş bağımsız kapıdan** geçmek zorunda ve
+herhangi biri düşerse çıktı silinir:
 
-1. **Yapı** — sonuçta `qpdf --check` hiçbir kırık çapraz başvuru offset'i ve
-   hata bildirmemeli.
+1. **Yapı** — `qpdf --check` hiçbir kırık çapraz başvuru offset'i ve hata
+   bildirmemeli.
 2. **Geometri** — HER sayfa (örnekleme yok) kaynağın o sayfa için bildirdiği
    kesim ölçüsünde olmalı ve hiçbir sayfa hâlâ kesim payı bildirmemeli.
 3. **Envanter** — görüntü sayısı, renk uzayı başına görüntü sayısı, gömülü font,
    üstveri akışı ve PDF sürümü korunmalı. Bu kapı şu yüzden var: aşağıdaki
    piksel kapısı renk yönetimi hasarına **kör** — ölçümü CoreGraphics ile
-   yapıyor, o da kendi yeniden etiketlemesini sadakatle geri üretiyor ve hiçbir
-   sorun görmüyor.
+   yapıyor, o da kendi yeniden etiketlemesini sadakatle geri üretiyor.
 4. **Render edilen piksel** — ilk, orta ve son sayfa kaynağın kesim alanıyla
    birebir aynı render edilmeli (ölçüldü: %0,00 fark).
+5. **Dışarıda bir şey kalmadı** (kırpma kipi) — eski kesim payı alanı boş render
+   edilmeli. Bu kapı dikkat istiyor: `CGContext.drawPDFPage` sayfayı **kendi
+   CropBox'ına kırpıyor**, yani çıktıyı olduğu gibi ölçmek dosyada gerçekte ne
+   olduğuna bakılmaksızın boş bir bant gösteriyor — bu kapının önceki sürümü,
+   3 mm kesim payı yerli yerinde duran bir dosyaya "temiz, %0,0" dedi. Kapı artık
+   çıktının bir kopyasını alıp sayfa kutularını qpdf ile (kayıpsız) büyütüyor ve
+   ONU render ediyor; böylece başka bir okuyucunun göreceği şeyi görüyor. Ölçtüğü
+   bant sabit bir genişlik değil, kaynağın gerçek kesim payından kenar kenar
+   türetiliyor ve kesim çizgisindeki 0,5 pt'lik kılcal şerit sayılmıyor — o şerit
+   kırpma yolunun kendi kenar yumuşatması (bağımsız olarak 300 dpi'da
+   doğrulandı: kesim kutusu dışındaki beyaz olmayan her piksel sınırdan bir
+   pikselin içinde, en uzağı 0,01 pt).
 
-*Silinsin* seçilirse sayfalar yeniden çizilir (dosyada açıklama varsa ve gs
-kuruluysa Ghostscript, yoksa CoreGraphics), sonuç çapraz başvuru tablosu sağlam
-olsun diye qpdf'ten geçirilir ve sonuç satırı yeniden çizmenin neyi değiştirdiğini
-tek tek söyler: renk uzayları, silinen üstveri, düşen sürüm. Bu kip
-kullanılabilir, ama bedeli gizlenmiyor.
-
-Açıklamalar: CoreGraphics ile yeniden çizim onları kaybediyor (ölçüldü: gerçek
-bir dosyada 24'ün 24'ü), Ghostscript koruyor; varsayılan kip hiç yeniden
-çizmediği için zaten koruyor. Sayfalar arasında tutarsız TrimBox bildirilir.
-İlerleme sayfa başına verilir.
+*Kalsın* kırpmayı atlar: sayfalar yalnızca küçültülür ve sonuç satırı, kutu
+yeniden büyütülürse kesim payının hâlâ gösterilebileceğini söyler. *Silinsin*
+sayfaları yeniden çizer (dosyada açıklama varsa ve gs kuruluysa Ghostscript,
+yoksa CoreGraphics), böylece kesim payı içeriği fiziksel olarak gider; ardından
+çapraz başvuru tablosu sağlam olsun diye sonuç qpdf'ten geçirilir ve yeniden
+çizmenin neyi değiştirdiği tek tek yazılır. Açıklamalar iki kayıpsız kipte
+korunur (hiçbir şey yeniden çizilmediği için); CoreGraphics onları kaybediyor
+(ölçüldü: gerçek bir dosyada 24'ün 24'ü). Sayfalar arasında tutarsız TrimBox
+bildirilir.
 
 ```bash
-pdftools trim [--delete-outside] [--out KLASÖR] <dosya.pdf|klasör>...
+pdftools trim [--outside clip|keep|delete] [--out KLASÖR] <dosya.pdf|klasör>...
 ```
 
 #### Blank PDF — Boş PDF
@@ -663,7 +679,7 @@ bölümünde.
 
 ## Testler
 
-`swift test` **183 test** koşar. Beşi makinede ne olduğuna bağlı: üçü
+`swift test` **186 test** koşar. Beşi makinede ne olduğuna bağlı: üçü
 Ghostscript istiyor, biri Ghostscript'in KURULU OLMAMASINI istiyor (gs yokken
 alınan hata mesajını sınıyor), biri de Vision'ın Türkçe dil desteğini istiyor.
 Yani gs'li ve Türkçe Vision'lı bir Mac'te 1 test atlanır; ikisi de olmayan
@@ -694,9 +710,9 @@ engeller.
   Güvenlik dolambacı gerekmesin
 - **Sırada** — sayfayı hâlâ yeniden çizen dört iş için kayıpsız damgalama
   (Sayfa Numarası Ekle, QR Ekle, Filigran Ekle, Aranabilir PDF Yap): sayfayı
-  yeniden çizmek yerine var olan içerik akışına damgalamak — Kesim Payını At'ın
-  artık yalnız sayfa kutularını düzenlemesi gibi. Çıktıları şimdiden onarılıyor
-  ve hasar bildiriliyor, ama gerçek çözüm hiç yeniden çizmemek
+  yeniden çizmek yerine var olan içerik akışına eklemek — Kesim Payını At'ın
+  artık kutuları düzenleyip başa kırpma yolu koyması gibi. Çıktıları şimdiden
+  onarılıyor ve hasar bildiriliyor, ama gerçek çözüm hiç yeniden çizmemek
 - **Sonra** — düzen ve formül farkında belge OCR'ı (OmniDocBench ile ölçülecek),
   formüllü ve karmaşık düzenli ders kitapları için
 

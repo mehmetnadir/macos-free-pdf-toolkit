@@ -85,7 +85,7 @@ additionally needs `cmake`, `go`, `gh`.
 ```bash
 ./packaging/build-engines.sh   # builds qpdf + pdfcpu into vendor/bin/ (needs internet, repeatable)
 swift build                    # universal build: swift build --arch arm64 --arch x86_64
-swift test                     # 183 tests, Tests/PDFToolsCoreTests/
+swift test                     # 186 tests, Tests/PDFToolsCoreTests/
 ./packaging/build.sh           # produces build/PDF Tools.app (set SIGN_IDENTITY for a Developer ID signature)
 ```
 
@@ -133,26 +133,33 @@ pdftools encrypt [--password PASSWORD] [--owner-password PASSWORD] \
 
 #### Trim Bleed
 
-Resizes every page down to the trim line, so the printer's bleed margin is no
-longer part of the page. The card is only enabled for files that actually
-declare a bleed.
+Resizes every page down to the trim line and clips away what was outside it — the
+printer's bleed margin is gone, and **nothing is redrawn**. The card is only
+enabled for files that actually declare a bleed.
 
 | Option | Values | Default |
 |---|---|---|
-| Content outside the trim line | *Keep it — the file is not rewritten* · *Delete it — every page is redrawn* | Keep it |
+| Content outside the trim line | *Clip it — cannot be drawn any more, nothing is rewritten* · *Keep it — pages are only resized* · *Delete it — every page is redrawn* | Clip it |
 
-**The default does not rewrite your file.** It changes nothing but the page
-boxes: `/MediaBox` and `/CropBox` become the `/TrimBox`, and `/TrimBox`,
-`/BleedBox` and `/ArtBox` are dropped so the file no longer claims to have a
-bleed. Content streams, images, fonts, colour profiles, annotations, bookmarks
-and XMP packets are carried over untouched — the engine is the bundled qpdf,
-driven through its JSON update mode, and nothing is re-drawn or re-encoded.
+**How the default works.** Two edits, both at the object level, both lossless:
+`/MediaBox` and `/CropBox` become the `/TrimBox` (and `/TrimBox`, `/BleedBox`,
+`/ArtBox` are dropped so the file no longer claims a bleed), and the page's
+content stream list gets a clipping path in front of it — `q <trim box> re W n`
+— with a matching `Q` at the end. Existing streams, images, fonts, colour
+profiles, annotations, bookmarks and XMP packets are copied through untouched;
+the engine is the bundled qpdf driven through its JSON update mode. The two clip
+streams are shared across pages, so a 130-page book grows by about 4 KB.
 
-Why that is the default: the previous default re-drew every page through
-CoreGraphics, and re-drawing a print-ready PDF is not free. Measured on three
-real publisher files (3.7 MB, 1.8 MB, 18.6 MB; 3 mm and 5 mm bleeds):
+This is the same level at which the professional tools work: Adobe Acrobat's
+Preflight fixups ("remove objects outside page area") and Enfocus PitStop's
+*Select objects inside or outside region* → *Remove selection* / *Crop line art*
+edit the PDF objects rather than rasterizing the page.
 
-| | source | box trim (default) | redraw |
+**Why not redraw.** The previous default drew every page again through
+CoreGraphics. Measured on three real publisher files (3.7 MB, 1.8 MB, 18.6 MB;
+3 mm and 5 mm bleeds):
+
+| | source | clip / keep (default) | redraw |
 |---|---|---|---|
 | Cross-reference entries pointing at byte 0 | 0 | **0** | **64 / 5 / 31** |
 | PDF version | 1.4 / 1.4 / 1.6 | preserved | **lowered to 1.3** |
@@ -164,38 +171,47 @@ real publisher files (3.7 MB, 1.8 MB, 18.6 MB; 3 mm and 5 mm bleeds):
 | File size | — | −13% … −36% | +37% |
 
 Those broken cross-reference entries are why this was rewritten: the old output
-opened fine in Preview, and the old single gate called it clean, but a stricter
-reader rejected it outright with `Rebuild failed: Dictionary key 16 is not a
-name`. An output that opens in one reader and fails in another is the worst kind
-of result, so a trimmed file now has to pass **four independent gates** before it
-is handed over — any one of them failing deletes the output:
+opened fine in Preview, and the old gate called it clean, but a stricter reader
+rejected it outright with `Rebuild failed: Dictionary key 16 is not a name`. An
+output that opens in one reader and fails in another is the worst kind of result,
+so a trimmed file now has to pass **five independent gates**, and any one of them
+failing deletes the output:
 
-1. **Structure** — `qpdf --check` on the result must report no broken
-   cross-reference offsets and no errors.
+1. **Structure** — `qpdf --check` must report no broken cross-reference offsets
+   and no errors.
 2. **Geometry** — every page (all of them, not a sample) must measure the trim
    size the source declared for that page, and no page may still declare a
    bleed.
 3. **Inventory** — image count, images per colour space, embedded fonts,
    metadata streams and the PDF version must all survive. This gate exists
    because the pixel gate below is *blind* to colour-management damage: it
-   renders through CoreGraphics, which reproduces its own re-tagging faithfully
-   and therefore sees nothing wrong.
-4. **Rendered pixels** — the first, middle and last page must render identically
-   to the source's trim area (measured: 0.00% differing).
+   renders through CoreGraphics, which reproduces its own re-tagging faithfully.
+4. **Rendered pixels** — first, middle and last page must render identically to
+   the source's trim area (measured: 0.00% differing).
+5. **Nothing left outside** (clip mode) — the former bleed area must render
+   blank. This one needs care: `CGContext.drawPDFPage` **clips a page to its own
+   CropBox**, so measuring the output as-is shows an empty band no matter what
+   is really in the file — the earlier version of this gate called a file with
+   its full 3 mm bleed still in place "clean, 0.0%". The gate now copies the
+   output, enlarges the page boxes with qpdf (lossless), and renders *that*, so
+   it sees what a different reader would see. The band it measures is derived
+   from the source's real bleed, edge by edge, rather than a fixed width, and
+   ignores a 0.5 pt hairline at the trim line — that hairline is the clipping
+   path's own antialiasing (verified independently at 300 dpi: every non-white
+   pixel outside the trim box sits within one pixel of the boundary, the
+   farthest 0.01 pt).
 
-Choosing *Delete it* re-draws the pages (Ghostscript if the file has annotations
-and gs is installed, CoreGraphics otherwise), then passes the result through
-qpdf so the cross-reference table is sound again, and the result line spells out
-what re-drawing changed — colour spaces, dropped metadata, a lowered version.
-That mode is available, but nothing about its cost is hidden.
-
-Annotations: re-drawing with CoreGraphics loses them (measured: 24 of 24 on a
-real file), Ghostscript keeps them, and the default mode keeps them because it
-never re-draws. An inconsistent TrimBox across pages is reported. Progress is
-per page.
+*Keep it* skips the clip: pages are only resized, and the result line says the
+bleed can still be shown if someone enlarges the page box again. *Delete it*
+redraws the pages (Ghostscript if the file has annotations and gs is installed,
+CoreGraphics otherwise) so the bleed content is physically gone, then passes the
+result through qpdf so the cross-reference table is sound, and lists what
+redrawing changed. Annotations survive the two lossless modes because nothing is
+redrawn; CoreGraphics loses them (measured: 24 of 24 on a real file). An
+inconsistent TrimBox across pages is reported.
 
 ```bash
-pdftools trim [--delete-outside] [--out DIR] <file.pdf|folder>...
+pdftools trim [--outside clip|keep|delete] [--out DIR] <file.pdf|folder>...
 ```
 
 #### Blank PDF
@@ -658,7 +674,7 @@ The trim-engine comparison is in [Trim Bleed](#trim-bleed).
 
 ## Testing
 
-`swift test` runs **183 tests**. Five of them depend on what the machine has:
+`swift test` runs **186 tests**. Five of them depend on what the machine has:
 three need Ghostscript, one needs Ghostscript to be *absent* (it checks the
 error message you get without it), and one needs Vision's Turkish language pack.
 So a Mac with `gs` and Turkish Vision skips 1, while CI — which has neither —
@@ -688,10 +704,10 @@ regress when a new operation is added.
 - **Next** — notarization, so the first launch needs neither right-click → Open
   nor the Privacy & Security detour
 - **Next** — lossless stamping for the four operations that still redraw the
-  page (Add Page Numbers, Add QR, Add Watermark, Make Searchable): stamp into
-  the existing content stream instead of re-drawing it, the way Trim Bleed now
-  edits only the page boxes. Their output is already repaired and the damage is
-  already reported, but not redrawing at all is the real fix
+  page (Add Page Numbers, Add QR, Add Watermark, Make Searchable): append to the
+  existing content stream instead of re-drawing it, the way Trim Bleed now edits
+  the page boxes and prepends a clipping path. Their output is already repaired
+  and the damage is already reported, but not redrawing at all is the real fix
 - **Later** — layout- and formula-aware document OCR, benchmarked against
   OmniDocBench, for textbooks with equations and complex page structure
 

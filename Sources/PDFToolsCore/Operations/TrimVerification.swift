@@ -23,65 +23,134 @@ public enum TrimVerification {
     public let verdict: Verdict
   }
 
-  /// İnceleme bandı genişliği (punto). Gerçek matbaa dosyasında ölçülen kesim payıyla eşleşir.
-  public static let marginPoints: CGFloat = 8.5
   public static let renderDPI: CGFloat = 150
+  /// KENAR YUMUŞATMA PAYI (punto). Kırpma yolu tam kutu sınırına oturduğunda render, sınıra
+  /// değen piksel satırını yarı tonla boyuyor — bu MÜREKKEP DEĞİL, kenar yumuşatmadır.
+  /// Ölçüldü (2026-09-11, bağımsız yol: kutuyu qpdf ile geri büyüt + gs ile 300 dpi render):
+  /// kırpılmış çıktıda kutu dışındaki mürekkebin %100'ü sınırdan 1 pikselin içinde, en uzak
+  /// mürekkep 0,01 pt. Pay olmadan kapı "silik iz var" diye YANLIŞ ALARM veriyordu.
+  /// 0,5 pt ≈ 150 dpi'da 1 piksel; gerçek kesim payı (3 mm = 8,5 pt) buna göre 17 kat büyük,
+  /// yani kapı hâlâ gerçek kalıntıyı görüyor (`TrimTests` ve mutasyonla kanıtlı).
+  public static let antialiasGuardPoints: CGFloat = 0.5
   /// Bu luma değerinin (0–255, gri tonlama) altı "mürekkep var" sayılır; 255 saf beyaz.
-  private static let inkLumaThreshold: UInt8 = 245
+  static let inkLumaThreshold: UInt8 = 245
   private static let cleanThreshold: Double = 2.0
   private static let failedThreshold: Double = 10.0
 
-  /// `url`'deki PDF'in ilk sayfasını inceler. Sayfa açılamıyorsa ya da kutusu dejenereyse
-  /// güvenli tarafta kalıp `.failed` döner (kanıtsız "temiz" raporlamamak için).
-  public static func verify(_ url: URL) -> Result {
-    guard let document = CGPDFDocument(url as CFURL), let page = document.page(at: 1) else {
-      return Result(residuePercent: 100, verdict: .failed)
-    }
-    let originalBox = page.getBoxRect(.mediaBox)
-    guard originalBox.width > 0, originalBox.height > 0 else {
-      return Result(residuePercent: 100, verdict: .failed)
-    }
-    let expanded = originalBox.insetBy(dx: -marginPoints, dy: -marginPoints)
-    let scale = renderDPI / 72.0
-    let pxWidth = max(1, Int((expanded.width * scale).rounded(.up)))
-    let pxHeight = max(1, Int((expanded.height * scale).rounded(.up)))
-
-    guard
-      let ctx = CGContext(
-        data: nil, width: pxWidth, height: pxHeight, bitsPerComponent: 8, bytesPerRow: 0,
-        space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+  /// Çıktının kesim çizgisi DIŞINDA gerçekten ne bıraktığını ölçer.
+  ///
+  /// NEDEN KUTUYU BÜYÜTMEK ZORUNDA (ölçülmüş KÖR KAPI, 2026-09-11): önceki sürüm sayfayı olduğu
+  /// gibi render edip kutunun dışına bakıyordu. Ama `CGContext.drawPDFPage` sayfayı KENDİ
+  /// CropBox'ına KIRPIYOR — ve kesim çıktısında CropBox tam olarak kesim kutusudur. Yani kapı,
+  /// kesim payında duran içeriği HİÇ göremiyordu: "kalsın" kipiyle üretilmiş, kesim payı yerli
+  /// yerinde duran bir dosyaya "temiz, %0,0" dedi. Bağımsız yolla (kutuyu qpdf ile büyüt + gs ile
+  /// 300 dpi render) aynı dosyada mürekkep kutunun 8,41 pt dışına kadar ölçüldü.
+  ///
+  /// Doğru ölçüm: çıktının bir KOPYASINDA sayfa kutuları geçici olarak büyütülür (qpdf ile,
+  /// kayıpsız), sonra render edilir. Kırpma artık ölçüm bandını kesmiyor.
+  /// BANT GENİŞLİĞİ KAYNAKTAN TÜRETİLİR, sabit değildir. Sabit 8,5 pt (gerçek bir 3 mm kesim
+  /// payından ölçülmüştü) 5 mm'lik ya da kenarın dış ucunda mürekkep taşıyan dosyalarda bandın
+  /// DIŞINDA kalıyordu — yani kapı gerçek kalıntıyı kaçırabiliyordu (ölçüldü: 20 pt kesim paylı
+  /// fixture'da mürekkep bandın tamamen dışındaydı, kapı "temiz" dedi). Doğru bant, kaynağın
+  /// MediaBox'ı ile TrimBox'ı arasındaki gerçek paydır — kenar kenar.
+  public static func residue(
+    in output: URL, source: URL, qpdf: URL, sampleLimit: Int = 3
+  ) async throws -> Result {
+    guard let document = CGPDFDocument(output as CFURL), document.isUnlocked,
+      document.numberOfPages > 0,
+      let sourceDocument = CGPDFDocument(source as CFURL), sourceDocument.isUnlocked
     else {
       return Result(residuePercent: 100, verdict: .failed)
     }
-    // Beyaz zemin: sayfa dışına taşan hiçbir şey yoksa bant tamamen beyaz kalır.
-    ctx.setFillColor(gray: 1, alpha: 1)
-    ctx.fill(CGRect(x: 0, y: 0, width: pxWidth, height: pxHeight))
-    ctx.scaleBy(x: scale, y: scale)
-    ctx.translateBy(x: -expanded.origin.x, y: -expanded.origin.y)
-    // Not: CGContext.drawPDFPage kutuya göre KIRPMAZ (Apple dokümantasyonu) — tam da bunu
-    // istiyoruz: sayfanın bildirdiği kutunun dışında kalan gerçek içeriği görünür kılmak.
-    ctx.drawPDFPage(page)
+    let count = min(document.numberOfPages, sourceDocument.numberOfPages)
+    guard count > 0 else { return Result(residuePercent: 100, verdict: .failed) }
+    var boxes: [Int: CGRect] = [:]
+    var bleeds: [Int: CGRect] = [:]  // çıktı kutusunun kenar kenar genişletilmiş hâli
+    for index in sampleIndices(count: count, limit: sampleLimit) {
+      guard let page = document.page(at: index), let sourcePage = sourceDocument.page(at: index)
+      else { continue }
+      let box = page.getBoxRect(.mediaBox)
+      guard box.width > 0, box.height > 0 else { continue }
+      let sourceMedia = sourcePage.getBoxRect(.mediaBox)
+      let sourceTrim = sourcePage.getBoxRect(.trimBox)
+      // Kenar başına gerçek kesim payı. Çıktı kutusuna eklenir: kayıpsız kipte bu doğrudan
+      // kaynağın MediaBox'ını verir; sayfayı yeniden çizen kipte içerik (0,0)'a taşındığı için
+      // aynı payların çıktı kutusuna eklenmesi doğru bandı verir — iki kipte de geçerli.
+      let left = max(0, sourceTrim.minX - sourceMedia.minX)
+      let bottom = max(0, sourceTrim.minY - sourceMedia.minY)
+      let right = max(0, sourceMedia.maxX - sourceTrim.maxX)
+      let top = max(0, sourceMedia.maxY - sourceTrim.maxY)
+      guard left + bottom + right + top > 0 else { continue }
+      boxes[index] = box
+      bleeds[index] = CGRect(
+        x: box.minX - left, y: box.minY - bottom,
+        width: box.width + left + right, height: box.height + bottom + top)
+    }
+    guard !boxes.isEmpty else { return Result(residuePercent: 100, verdict: .failed) }
 
-    guard let data = ctx.data else {
+    let editor = QPDFPageEditor(executable: qpdf)
+    let enlarged = output.deletingLastPathComponent()
+      .appendingPathComponent(".\(output.lastPathComponent).band.pdf")
+    let fm = FileManager.default
+    try? fm.removeItem(at: enlarged)
+    defer { try? fm.removeItem(at: enlarged) }
+
+    let ids = try await editor.pageObjectIDs(of: output)
+    let (header, objects) = try await editor.pageObjects(of: output, ids: ids)
+    var changed: [String: Any] = [:]
+    for (index, id) in ids.enumerated() {
+      guard let band = bleeds[index + 1],
+        var page = QPDFPageEditor.dictionary(for: id, in: objects)
+      else { continue }
+      // +1 pt: bandın kenarı render sınırına DEĞMESİN, yoksa ölçümün kendisi kırpılır.
+      let big = band.insetBy(dx: -1, dy: -1)
+      page["/MediaBox"] = QPDFPageEditor.jsonBox(big)
+      page["/CropBox"] = QPDFPageEditor.jsonBox(big)
+      changed["obj:\(id)"] = ["value": page]
+    }
+    guard !changed.isEmpty else { return Result(residuePercent: 100, verdict: .failed) }
+    try await editor.apply(update: ["qpdf": [header, changed]], to: output, output: enlarged)
+
+    guard let enlargedDocument = CGPDFDocument(enlarged as CFURL) else {
       return Result(residuePercent: 100, verdict: .failed)
     }
-    let bytesPerRow = ctx.bytesPerRow
-    let buffer = data.bindMemory(to: UInt8.self, capacity: bytesPerRow * pxHeight)
 
     var bandPixels = 0
     var inkPixels = 0
-    for row in 0..<pxHeight {
-      // CGContext(data: nil, ...) ile oluşturulan gri tonlamalı bitmap'in ham arabelleği satır 0
-      // = görüntünün ÜSTÜ (en yüksek kullanıcı-uzayı y'si) ile başlıyor — ekstra flip UYGULANMADI,
-      // bu proje içinde ölçülüp doğrulandı (bkz. oturum notları / scratchpad ölçümü, 2026-09-07).
-      let userY = expanded.maxY - (Double(row) + 0.5) / Double(scale)
-      let rowStart = row * bytesPerRow
-      for col in 0..<pxWidth {
-        let userX = expanded.origin.x + (Double(col) + 0.5) / Double(scale)
-        guard !originalBox.contains(CGPoint(x: userX, y: userY)) else { continue }
-        bandPixels += 1
-        if buffer[rowStart + col] < inkLumaThreshold {
-          inkPixels += 1
+    for (pageNumber, originalBox) in boxes {
+      guard let page = enlargedDocument.page(at: pageNumber) else { continue }
+      let surface = page.getBoxRect(.mediaBox)
+      let scale = renderDPI / 72.0
+      let width = max(1, Int((surface.width * scale).rounded(.up)))
+      let height = max(1, Int((surface.height * scale).rounded(.up)))
+      guard
+        let ctx = CGContext(
+          data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+          space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+      else { continue }
+      // Beyaz zemin: kesim payında hiçbir şey kalmadıysa bant tamamen beyaz kalır.
+      ctx.setFillColor(gray: 1, alpha: 1)
+      ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+      ctx.scaleBy(x: scale, y: scale)
+      ctx.translateBy(x: -surface.origin.x, y: -surface.origin.y)
+      ctx.drawPDFPage(page)
+      guard let data = ctx.data else { continue }
+      let bytesPerRow = ctx.bytesPerRow
+      let buffer = data.bindMemory(to: UInt8.self, capacity: bytesPerRow * height)
+
+      let inner = originalBox.insetBy(dx: -antialiasGuardPoints, dy: -antialiasGuardPoints)
+      let outer = bleeds[pageNumber] ?? originalBox
+      for row in 0..<height {
+        // Satır 0 = görüntünün ÜSTÜ (en yüksek kullanıcı-uzayı y'si); bu proje içinde ölçülüp
+        // doğrulandı (2026-09-07).
+        let userY = surface.maxY - (Double(row) + 0.5) / Double(scale)
+        let rowStart = row * bytesPerRow
+        for column in 0..<width {
+          let userX = surface.origin.x + (Double(column) + 0.5) / Double(scale)
+          let point = CGPoint(x: userX, y: userY)
+          guard outer.contains(point), !inner.contains(point) else { continue }
+          bandPixels += 1
+          if buffer[rowStart + column] < inkLumaThreshold { inkPixels += 1 }
         }
       }
     }
@@ -97,6 +166,7 @@ public enum TrimVerification {
     }
     return Result(residuePercent: percent, verdict: verdict)
   }
+
 }
 
 // MARK: - Kutu geometrisi ve içerik sadakati kapıları

@@ -125,7 +125,8 @@
 "Password-protects the file with 256-bit AES" = "256-bit AES ile parola korumalı hâle getirir";
 "Resizes every page down to the trim line, so the printer's bleed margin is gone" = "Her sayfayı kesim çizgisine küçültür; baskı taşma payı böylece kalkar";
 "Content outside the trim line" = "Kesim çizgisi dışındaki içerik";
-"Keep it — the file is not rewritten" = "Kalsın — dosya yeniden yazılmaz";
+"Clip it — cannot be drawn any more, nothing is rewritten" = "Kırp — artık çizilemez, hiçbir şey yeniden yazılmaz";
+"Keep it — pages are only resized" = "Kalsın — sayfalar yalnız küçültülür";
 "Delete it — every page is redrawn" = "Silinsin — her sayfa yeniden çizilir";
 "Permissions" = "İzinler";
 "Plain" = "Düz";
@@ -171,7 +172,8 @@
 "Unreadable" = "Okunamıyor";
 "Wrong password" = "Şifre yanlış";
 "bleed margin is inconsistent across pages" = "sayfalar arası kesim payı tutarsız";
-"pages were only resized — the bleed content is no longer part of any page but stays inside the file" = "sayfalar yalnızca küçültüldü — kesim payı içeriği artık hiçbir sayfanın parçası değil, ama dosyada kalıyor";
+"pages were only resized — the bleed content can still be shown if the page box is enlarged again" = "sayfalar yalnızca küçültüldü — kutu yeniden büyütülürse kesim payı içeriği hâlâ gösterilebilir";
+"clipped — a faint trace remains along the edges" = "kırpıldı — kenarlarda silik bir iz kaldı";
 "clean" = "temiz";
 "could not create the PDF context" = "PDF bağlamı oluşturulamadı";
 "could not create the data consumer" = "veri tüketicisi oluşturulamadı";

@@ -29,7 +29,13 @@ public struct TrimOperation: PDFOperation {
   public var outputSuffixes: [String] { [outputSuffix] }
 
   public static let outsideOptionID = "outsideContent"
+  /// VARSAYILAN: kutular küçülür + içerik akışına kırpma eklenir. Kayıpsız (hiçbir şey yeniden
+  /// çizilmez) ama kesim dışı içerik artık HİÇBİR okuyucuda çizilemez — Acrobat Preflight ve
+  /// PitStop'un yaptığı işin aynısı, nesne düzeyinde.
+  public static let clipOutside = "clip"
+  /// Yalnız kutular küçülür; kesim payı içeriği gösterilebilir kalır (kutu büyütülürse geri gelir).
   public static let keepOutside = "keep"
+  /// Sayfalar yeniden çizilir; içerik gerçekten silinir ama dosya baştan yazılır (bedeli ölçüldü).
   public static let removeOutside = "remove"
 
   public init() {}
@@ -40,10 +46,11 @@ public struct TrimOperation: PDFOperation {
         id: Self.outsideOptionID,
         label: "Content outside the trim line",
         choices: [
-          (value: Self.keepOutside, label: "Keep it — the file is not rewritten"),
+          (value: Self.clipOutside, label: "Clip it — cannot be drawn any more, nothing is rewritten"),
+          (value: Self.keepOutside, label: "Keep it — pages are only resized"),
           (value: Self.removeOutside, label: "Delete it — every page is redrawn"),
         ],
-        defaultValue: Self.keepOutside)
+        defaultValue: Self.clipOutside)
     ]
   }
 
@@ -74,7 +81,7 @@ public struct TrimOperation: PDFOperation {
       return .skipped(reason: "No bleed margin found")
     }
 
-    let mode = context.options[Self.outsideOptionID] ?? Self.keepOutside
+    let mode = context.options[Self.outsideOptionID] ?? Self.clipOutside
     let qpdf = EngineLocator.find("qpdf")
     let annotationCount = PDFAnnotations.count(in: file.url)
 
@@ -84,8 +91,8 @@ public struct TrimOperation: PDFOperation {
       mode: mode, annotationCount: annotationCount, qpdf: qpdf,
       ghostscript: EngineLocator.ghostscript())
     {
-    case .lossless(let binary):
-      engine = QPDFTrimEngine(executable: binary)
+    case .lossless(let binary, let engineMode):
+      engine = QPDFTrimEngine(executable: binary, mode: engineMode)
     case .ghostscript(let binary):
       engine = GhostscriptEngine(executable: binary)
     case .coreGraphics:
@@ -143,8 +150,8 @@ public struct TrimOperation: PDFOperation {
     }
     if mode == Self.keepOutside {
       notes.append(
-        "pages were only resized — the bleed content is no longer part of any page but stays "
-          + "inside the file")
+        "pages were only resized — the bleed content can still be shown if the page box is "
+          + "enlarged again")
     }
     return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
   }
@@ -154,7 +161,7 @@ public struct TrimOperation: PDFOperation {
   /// esnemez — (1) kayıpsız kip ASLA yeniden yazan bir motora düşmez, qpdf yoksa hata verir;
   /// (2) tanınmayan bir kip değeri kayıpsız kabul edilir (yanlış yazım hasara yol açamaz).
   enum EngineChoice: Equatable {
-    case lossless(URL)
+    case lossless(URL, QPDFTrimEngine.Mode)
     case ghostscript(URL)
     case coreGraphics
     case qpdfMissing
@@ -165,7 +172,8 @@ public struct TrimOperation: PDFOperation {
   ) -> EngineChoice {
     guard mode == removeOutside else {
       guard let qpdf else { return .qpdfMissing }
-      return .lossless(qpdf)
+      // Tanınmayan değer de kırpmaya düşer: hem kayıpsız hem işin adına uygun.
+      return .lossless(qpdf, mode == keepOutside ? .boxesOnly : .clipOutside)
     }
     // Açıklaması olan dosyada gs tercih edilir: sayfayı yeniden çizen CoreGraphics bağlantı ve
     // form alanlarını tamamen kaybediyor (24/24 kayıp ölçüldü, 2026-09-09). Açıklama yoksa
@@ -214,17 +222,31 @@ public struct TrimOperation: PDFOperation {
     // fark kaçınılmaz — orada kapı bant ölçümüdür, sadakat ise ÖLÇÜLÜP BİLDİRİLİR (sessizce
     // yutulmaz: kullanıcı renk kaymasını bizden önce görmüştü, bir daha olmasın).
     let fidelity = TrimVerification.fidelity(source: source, output: output)
-    if mode == Self.keepOutside {
+    if mode != Self.removeOutside {
       guard fidelity.isFaithful else {
         throw OperationError.trimFidelityFailed(percent: fidelity.differingPixelPercent)
       }
-    } else {
-      let band = TrimVerification.verify(output)
-      guard band.verdict != .failed else {
-        throw OperationError.trimVerificationFailed(percent: band.residuePercent)
+      // 5) BANT (yalnız kırpma kipinde): kesim çizgisinin DIŞINDA gerçekten hiçbir şey çizilmiyor
+      // mu. "keep" kipinde bu kapı ANLAMSIZ (içerik bilerek duruyor), kırpma kipinde ise işin
+      // asıl sözü budur — kutu üstverisine değil render edilen piksele bakılır.
+      if mode == Self.clipOutside, let qpdf {
+        let band = try await TrimVerification.residue(in: output, source: source, qpdf: qpdf)
+        guard band.verdict != .failed else {
+          throw OperationError.trimVerificationFailed(percent: band.residuePercent)
+        }
+        if band.verdict == .partial {
+          notes.append("clipped — a faint trace remains along the edges")
+        }
       }
-      if band.verdict == .partial {
-        notes.append("bleed removed — a faint trace remains along the edges")
+    } else {
+      if let qpdf {
+        let band = try await TrimVerification.residue(in: output, source: source, qpdf: qpdf)
+        guard band.verdict != .failed else {
+          throw OperationError.trimVerificationFailed(percent: band.residuePercent)
+        }
+        if band.verdict == .partial {
+          notes.append("bleed removed — a faint trace remains along the edges")
+        }
       }
       if !fidelity.isFaithful {
         let percent = String(format: "%.2f", fidelity.differingPixelPercent)

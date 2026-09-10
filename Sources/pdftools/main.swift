@@ -6,7 +6,7 @@ func usage() -> Never {
     """
     usage:
       pdftools unlock [--password PASSWORD] [--out DIR] <file.pdf|folder>...
-      pdftools trim [--delete-outside] [--out DIR] <file.pdf|folder>...
+      pdftools trim [--outside clip|keep|delete] [--out DIR] <file.pdf|folder>...
       pdftools merge [--out DIR] <file.pdf>...
       pdftools split [--mode each|n:10|half] [--out DIR] <file.pdf|folder>...
       pdftools image [--format png|jpeg|heic] [--dpi 150] [--out DIR] <file.pdf|folder>...
@@ -390,18 +390,28 @@ case "trim":
   // VARSAYILAN kayıpsız: yalnız sayfa kutuları küçülür, dosya yeniden yazılmaz. `--delete-outside`
   // kesim çizgisi dışındaki içeriği gerçekten siler — bedeli (renk/çizgi kayması, üstveri kaybı)
   // işlem sonucunda not olarak bildirilir.
-  var deleteOutside = false
-  let (outputDirectory, inputs) = parseArguments(arguments) { arg, _ in
+  var outside = TrimOperation.clipOutside
+  let (outputDirectory, inputs) = parseArguments(arguments) { arg, index in
+    if arg == "--outside" {
+      index += 1
+      guard index < arguments.count else { usage() }
+      switch arguments[index] {
+      case "clip": outside = TrimOperation.clipOutside
+      case "keep": outside = TrimOperation.keepOutside
+      case "delete": outside = TrimOperation.removeOutside
+      default: usage()
+      }
+      return true
+    }
+    // Eski bayrak korunuyor (kısa süre önce belgelendi): `--delete-outside` = `--outside delete`.
     guard arg == "--delete-outside" else { return false }
-    deleteOutside = true
+    outside = TrimOperation.removeOutside
     return true
   }
   let files = PDFFileInfo.collectPDFs(from: inputs)
   guard !files.isEmpty else { usage() }
   let context = OperationContext(
-    outputDirectory: outputDirectory,
-    options: deleteOutside
-      ? [TrimOperation.outsideOptionID: TrimOperation.removeOutside] : [:])
+    outputDirectory: outputDirectory, options: [TrimOperation.outsideOptionID: outside])
   exit(await runPerFile(TrimOperation(), files: files, context: context))
 
 case "merge":

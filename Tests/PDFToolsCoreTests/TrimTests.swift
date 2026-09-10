@@ -171,7 +171,8 @@ final class TrimTests: XCTestCase {
     XCTAssertEqual(outputBox.width, trimBox.width, accuracy: 0.5)
     XCTAssertEqual(outputBox.height, trimBox.height, accuracy: 0.5)
 
-    let verification = TrimVerification.verify(output)
+    let qpdf = try XCTUnwrap(EngineLocator.find("qpdf"))
+    let verification = try await TrimVerification.residue(in: output, source: source, qpdf: qpdf)
     XCTAssertEqual(
       verification.verdict, .clean,
       "kalıntı %\(verification.residuePercent) — beklenmedik derecede yüksek")
@@ -182,12 +183,13 @@ final class TrimTests: XCTestCase {
   /// Bu test gate'in KENDİSİNİ sınar: kesim payı SİLİNMEMİŞ (yalnızca kutu üstverisi küçültülmüş)
   /// bir dosya `TrimVerification`'a verildiğinde `.failed` dönmeli. Dönmezse doğrulama sahte
   /// "temiz" raporluyor demektir — bu test KIRMIZI vermeden gate'e güvenilemez.
-  func testTrimVerificationCatchesFakeTrim() throws {
+  func testTrimVerificationCatchesFakeTrim() async throws {
+    let qpdf = try XCTUnwrap(EngineLocator.find("qpdf"))
     let dir = try makeTempDirectory()
     let url = dir.appendingPathComponent("fake-trim.pdf")
     Self.makeFakeTrimFixture(to: url)
 
-    let result = TrimVerification.verify(url)
+    let result = try await TrimVerification.residue(in: url, source: url, qpdf: qpdf)
     XCTAssertEqual(
       result.verdict, .failed,
       "mutasyon testi KIRMIZI vermedi: kalıntı %\(result.residuePercent) 'temiz' sayıldı, "
@@ -222,7 +224,8 @@ final class TrimTests: XCTestCase {
       return XCTFail("gs kurulu=\(EngineLocator.ghostscript() != nil) iken çıktı yok: \(outcome)")
     }
     XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
-    let result = TrimVerification.verify(output)
+    let qpdf = try XCTUnwrap(EngineLocator.find("qpdf"))
+    let result = try await TrimVerification.residue(in: output, source: url, qpdf: qpdf)
     XCTAssertEqual(result.verdict, .clean, "kalıntı %\(result.residuePercent)")
   }
 }

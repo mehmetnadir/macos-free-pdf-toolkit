@@ -134,6 +134,67 @@ final class LosslessTrimTests: XCTestCase {
     XCTAssertEqual(untouched.width, 200, accuracy: 0.5, "kesim payı olmayan sayfa da küçültülmüş")
   }
 
+  // MARK: - Kırpma kipi (varsayılan): kayıpsız AMA kesim dışı içerik çizilemez
+
+  /// İKİ TARAFLI KANIT, tek testte: aynı fixture'ı iki kipte kesiyoruz.
+  /// · "clip" → bant TEMİZ olmalı (kesim çizgisi dışında hiçbir şey çizilmiyor)
+  /// · "keep" → bant DOLU olmalı (içerik bilerek duruyor)
+  /// İkinci yarı, bant kapısının körleşmediğinin kanıtı: kapı her şeye "temiz" diyorsa
+  /// birinci yarı da anlamsızdır. (Fixture kesim payına taşan kırmızı bir şerit çiziyor.)
+  func testClipModeRemovesWhatIsOutsideAndKeepModeDoesNot() async throws {
+    let qpdf = try XCTUnwrap(EngineLocator.find("qpdf"))
+    let dir = try makeTempDirectory()
+    let source = dir.appendingPathComponent("kaynak.pdf")
+    Self.makeFixture(to: source)
+
+    let clipped = try await trim(source, mode: TrimOperation.clipOutside, into: dir)
+    let clippedBand = try await TrimVerification.residue(in: clipped, source: source, qpdf: qpdf)
+    XCTAssertEqual(
+      clippedBand.verdict, .clean,
+      "kırpma kipinde kutu dışında mürekkep kaldı: %\(clippedBand.residuePercent)")
+
+    let kept = try await trim(source, mode: TrimOperation.keepOutside, into: dir)
+    let keptBand = try await TrimVerification.residue(in: kept, source: source, qpdf: qpdf)
+    XCTAssertEqual(
+      keptBand.verdict, .failed,
+      "'kalsın' kipinde bant temiz göründü — bant kapısı ölçmüyor demektir (%\(keptBand.residuePercent))")
+  }
+
+  /// Kırpma KAYIPSIZ: içerik akışına iki yeni akış ekleniyor, var olan hiçbir bayt
+  /// değişmiyor — envanter birebir, kesim İÇİNDEKİ piksel birebir.
+  func testClipModeIsLossless() async throws {
+    let qpdf = try XCTUnwrap(EngineLocator.find("qpdf"))
+    let dir = try makeTempDirectory()
+    let source = dir.appendingPathComponent("kaynak.pdf")
+    Self.makeFixture(to: source)
+    let before = try await PDFContentInventory.read(source, qpdf: qpdf)
+
+    let output = try await trim(source, mode: TrimOperation.clipOutside, into: dir)
+    let after = try await PDFContentInventory.read(output, qpdf: qpdf)
+    XCTAssertEqual(after.differences(from: before), [], "kırpma içeriği değiştirdi")
+    XCTAssertTrue(
+      TrimVerification.fidelity(source: source, output: output).isFaithful,
+      "kesim içindeki içerik kırpmadan sonra farklı render ediliyor")
+  }
+
+  /// KENAR YUMUŞATMA PAYI kapıyı körleştirmedi: kesim payı DURAN bir dosyada bant hâlâ
+  /// "failed". Pay (0,5 pt) gerçek kesim payından (fixture'da 20 pt) çok küçük.
+  func testAntialiasGuardDoesNotBlindTheBandGate() async throws {
+    let qpdf = try XCTUnwrap(EngineLocator.find("qpdf"))
+    let dir = try makeTempDirectory()
+    let source = dir.appendingPathComponent("kaynak.pdf")
+    Self.makeFixture(to: source)
+    // "Kalsın" kipiyle kesilmiş dosya: kutusu kesim ölçüsünde AMA kesim payı içeriği yerinde.
+    // Bant kapısı bunu kalıntılı görmek ZORUNDA — kapının kör olduğu durum tam buydu.
+    let kept = try await trim(source, mode: TrimOperation.keepOutside, into: dir)
+    XCTAssertGreaterThan(
+      TrimVerification.antialiasGuardPoints, 0, "pay sıfırsa bu testin konusu yok")
+    let band = try await TrimVerification.residue(in: kept, source: source, qpdf: qpdf)
+    XCTAssertEqual(
+      band.verdict, .failed,
+      "kenar yumuşatma payı kapıyı körleştirdi: kalıntı %\(band.residuePercent)")
+  }
+
   // MARK: - Kapıların MUTASYONLA kanıtı
 
   /// GEOMETRİ KAPISI: hiç kesilmemiş bir dosya çıktı olarak verilirse kapı kırmızıya dönmeli.
@@ -248,21 +309,26 @@ final class LosslessTrimTests: XCTestCase {
     let qpdf = URL(fileURLWithPath: "/bin/qpdf")
     let gs = URL(fileURLWithPath: "/bin/gs")
 
-    // Kayıpsız kip: açıklama olsa da, gs kurulu olsa da qpdf kullanılır.
+    // Kayıpsız kipler: açıklama olsa da, gs kurulu olsa da qpdf kullanılır. Fark yalnız
+    // kırpmanın uygulanıp uygulanmadığı.
     XCTAssertEqual(
       TrimOperation.engineChoice(
         mode: TrimOperation.keepOutside, annotationCount: 12, qpdf: qpdf, ghostscript: gs),
-      .lossless(qpdf))
+      .lossless(qpdf, .boxesOnly))
+    XCTAssertEqual(
+      TrimOperation.engineChoice(
+        mode: TrimOperation.clipOutside, annotationCount: 12, qpdf: qpdf, ghostscript: gs),
+      .lossless(qpdf, .clipOutside))
     // qpdf yoksa SESSİZCE yeniden yazan motora düşmek YASAK — kullanıcıya söylenir.
     XCTAssertEqual(
       TrimOperation.engineChoice(
         mode: TrimOperation.keepOutside, annotationCount: 0, qpdf: nil, ghostscript: gs),
       .qpdfMissing)
-    // Tanınmayan kip değeri kayıpsız sayılır: yanlış yazım hasara yol açamaz.
+    // Tanınmayan kip değeri kayıpsız + kırpma sayılır: yanlış yazım hasara yol açamaz.
     XCTAssertEqual(
       TrimOperation.engineChoice(
         mode: "hatalı-değer", annotationCount: 0, qpdf: qpdf, ghostscript: gs),
-      .lossless(qpdf))
+      .lossless(qpdf, .clipOutside))
 
     // Silme kipi: açıklama varsa gs (bağlantıları korur), yoksa/gs kurulu değilse CoreGraphics.
     XCTAssertEqual(
