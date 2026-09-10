@@ -4,6 +4,11 @@ import PackageDescription
 let package = Package(
   name: "PDFTools",
   platforms: [.macOS(.v14)],
+  dependencies: [
+    // Yalnız PDFToolsApp bu bağımlılığı kullanır — çekirdek (PDFToolsCore) ve CLI
+    // (pdftools) ağ/GUI güncelleme kütüphanesi taşımaz.
+    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6"),
+  ],
   targets: [
     .target(
       name: "PDFToolsCore",
@@ -11,8 +16,17 @@ let package = Package(
     ),
     .executableTarget(
       name: "PDFToolsApp",
-      dependencies: ["PDFToolsCore"],
-      path: "Sources/PDFToolsApp"
+      dependencies: [
+        "PDFToolsCore",
+        .product(name: "Sparkle", package: "Sparkle"),
+      ],
+      path: "Sources/PDFToolsApp",
+      // SwiftPM, Xcode'un aksine yürütülebilire otomatik @executable_path/../Frameworks
+      // rpath'i eklemiyor. Sparkle.framework paket içinde Contents/Frameworks altına
+      // kopyalanıyor (packaging/build.sh); bu rpath olmadan dyld açılışta çöküyor.
+      linkerSettings: [
+        .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
+      ]
     ),
     .executableTarget(
       name: "pdftools",

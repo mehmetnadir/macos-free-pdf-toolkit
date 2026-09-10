@@ -72,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct PDFToolsApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+  @StateObject private var updaterController = UpdaterController()
 
   var body: some Scene {
     WindowGroup {
@@ -97,6 +98,18 @@ struct PDFToolsApp: App {
         Button("Clear List") { appDelegate.model.clear() }
           .keyboardShortcut(.delete, modifiers: [.command, .shift])
           .disabled(appDelegate.model.items.isEmpty || appDelegate.model.isRunning)
+      }
+      // Apple standardı: uygulama menüsünde, About'un altında (bkz. HIG).
+      CommandGroup(after: .appInfo) {
+        Button("Check for Updates…") { updaterController.checkForUpdates() }
+          .disabled(!updaterController.canCheckForUpdates)
+        Toggle(
+          "Automatically Check for Updates",
+          isOn: Binding(
+            get: { updaterController.automaticallyChecksForUpdates },
+            set: { updaterController.automaticallyChecksForUpdates = $0 }
+          )
+        )
       }
     }
   }

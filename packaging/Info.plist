@@ -30,6 +30,20 @@
 	<string>NSApplication</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/mehmetnadir/macos-free-pdf-toolkit/main/appcast.xml</string>
+	<!-- Sparkle güncelleme imzasının AÇIK anahtarı (sır değildir, depoda durur). Eşi olan ÖZEL
+	     anahtar yalnız bu Mac'in Keychain'inde ("Private key for signing Sparkle updates");
+	     appcast imzalama (packaging/appcast.sh) bu yüzden yalnız o makinede yapılabilir.
+	     UYARI: özel anahtar kaybolursa kurulu sürümler hiçbir güncellemeyi kabul etmez —
+	     anahtarın yedeği alınmalı. Anahtarı değiştirmek = tüm kullanıcıların elle yeniden
+	     kurması demektir. -->
+	<key>SUPublicEDKey</key>
+	<string>G4PVma8IuB4RTTremW8jOBzw1/OOw8tTnLJ6nw97E6g=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

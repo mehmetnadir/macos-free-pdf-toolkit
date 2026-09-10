@@ -51,6 +51,46 @@ if [ -d vendor/licenses ]; then
   mkdir -p "$APP/Contents/Resources/licenses"
   cp vendor/licenses/* "$APP/Contents/Resources/licenses/"
 fi
+# Sparkle.framework (varsa) — paralel bir ajan Package.swift'e ekliyor olabilir; henüz
+# eklenmemişse otomatik güncelleme OLMADAN paketlenir (regresyon yok, betik yine tamamlanır).
+# symlink yapısı (Versions/Current -> sürüm dizini) korunmalı diye `cp -R` değil `ditto`.
+# Kaynak SEÇİMİ BELİRLİ olmak zorunda: `find | head -1` debug derlemesinin arm64-only
+# kopyasını seçebilir ve evrensel paketin içine tek mimarili framework girer — DMG
+# "universal" görünür, Intel'de çöker (sessiz bozulma). Bu yüzden önce XCFramework'ün
+# arm64_x86_64 dilimi, sonra release ürünü aranır; seçilen dilimin mimarisi ÖLÇÜLÜR.
+SPARKLE_FRAMEWORK=""
+for candidate in \
+  .build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework \
+  .build/apple/Products/Release/Frameworks/Sparkle.framework \
+  .build/apple/Products/Release/Sparkle.framework; do
+  [ -d "$candidate" ] && { SPARKLE_FRAMEWORK="$candidate"; break; }
+done
+if [ -n "$SPARKLE_FRAMEWORK" ]; then
+  echo "Sparkle.framework bulundu: $SPARKLE_FRAMEWORK"
+  mkdir -p "$APP/Contents/Frameworks"
+  rm -rf "$APP/Contents/Frameworks/Sparkle.framework"
+  ditto "$SPARKLE_FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
+  # Mimari kapısı: uygulama ikilisi evrensel derlendiyse framework de evrensel olmalı.
+  APP_ARCHS="$(lipo -archs "$APP/Contents/MacOS/PDFToolsApp" 2>/dev/null || echo "?")"
+  # Sürüm dizini adı Sparkle sürümüyle değişiyor (2.9.6'da Versions/B) — bu yüzden
+  # "Versions/A" gibi sabit bir yol DEĞİL, framework'ün üst düzey sembolik bağı okunur.
+  FW_ARCHS="$(lipo -archs "$APP/Contents/Frameworks/Sparkle.framework/Sparkle" \
+    2>/dev/null || echo "?")"
+  echo "mimari — uygulama: $APP_ARCHS | Sparkle: $FW_ARCHS"
+  for arch in $APP_ARCHS; do
+    case " $FW_ARCHS " in
+      *" $arch "*) ;;
+      *)
+        echo "HATA: uygulama $arch içeriyor ama Sparkle.framework içermiyor ($FW_ARCHS)." >&2
+        echo "      Bu paket $arch makinede güncelleme yüklemeye çalışırken çöker." >&2
+        exit 1
+        ;;
+    esac
+  done
+else
+  echo "UYARI: Sparkle.framework bulunamadı — otomatik güncelleme OLMADAN paketleniyor"
+  echo "       (Package.swift'e Sparkle bağımlılığı henüz eklenmemiş olabilir)"
+fi
 
 echo "=== 5. İmza ($SIGN_IDENTITY) ==="
 SIGN_OPTS=(--force --sign "$SIGN_IDENTITY")
@@ -58,8 +98,22 @@ SIGN_OPTS=(--force --sign "$SIGN_IDENTITY")
 for f in "$APP/Contents/Resources/bin/"* "$APP/Contents/MacOS/pdftools" "$APP/Contents/MacOS/PDFToolsApp"; do
   codesign "${SIGN_OPTS[@]}" "$f"
 done
+# Sparkle.framework gömülüyse: en içteki parçalar önce, framework en son (Apple'ın "inside-out"
+# imzalama sırası). Framework'ün kendi imzası olabileceğinden SIGN_OPTS'taki --force şart.
+if [ -n "$SPARKLE_FRAMEWORK" ]; then
+  FW_DEST="$APP/Contents/Frameworks/Sparkle.framework"
+  echo "--- Sparkle.framework içi imzalanıyor ---"
+  while IFS= read -r -d '' xpc; do
+    codesign "${SIGN_OPTS[@]}" "$xpc"
+  done < <(find "$FW_DEST" -maxdepth 4 -name "*.xpc" -print0 2>/dev/null)
+  AUTOUPDATE="$(find "$FW_DEST" -maxdepth 4 -name "Autoupdate" -type f 2>/dev/null | head -1)"
+  [ -n "$AUTOUPDATE" ] && codesign "${SIGN_OPTS[@]}" "$AUTOUPDATE"
+  UPDATER_APP="$(find "$FW_DEST" -maxdepth 4 -name "Updater.app" -type d 2>/dev/null | head -1)"
+  [ -n "$UPDATER_APP" ] && codesign "${SIGN_OPTS[@]}" "$UPDATER_APP"
+  codesign "${SIGN_OPTS[@]}" "$FW_DEST"
+fi
 codesign "${SIGN_OPTS[@]}" "$APP"
-codesign --verify --strict "$APP" && echo "imza doğrulandı"
+codesign --verify --strict --deep "$APP" && echo "imza doğrulandı (--deep)"
 
 echo "=== 6. DMG ==="
 SIGN_IDENTITY="$SIGN_IDENTITY" ./packaging/make-dmg.sh
@@ -88,6 +142,11 @@ else
   SMOKE_PID="$(pgrep -f "$APP/Contents/MacOS/PDFToolsApp" | head -1)"
   if [ -z "$SMOKE_PID" ]; then
     echo "HATA: uygulama açılmadı (süreç yok)" >&2
+    # `open -g` GUI üzerinden başlatıldığı için çökme çıktısı bu kabuğa akmaz (LaunchServices
+    # ayrı bir süreç ağacı); dyld/crash nedenini unified log'dan çekip göster (yalnız teşhis,
+    # bulunamazsa sessizce geçilir).
+    log show --last 20s --predicate 'process == "PDFToolsApp"' --style compact 2>/dev/null \
+      | grep -iE "dyld|library not loaded|terminat|crash" | tail -5 >&2 || true
     exit 1
   fi
   WINDOWS="$(swift packaging/window-count.swift "$SMOKE_PID" 2>/dev/null || echo 0)"
