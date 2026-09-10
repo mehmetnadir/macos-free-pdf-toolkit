@@ -72,6 +72,17 @@ public enum OperationError: Error, LocalizedError, Equatable {
   case engineMissing(String)
   /// `TrimVerification` çıktıyı `.failed` olarak işaretledi; çıktı silinir, işlem hata döner.
   case trimVerificationFailed(percent: Double)
+  /// Çıktının sayfa ÖLÇÜSÜ kaynağın TrimBox'ıyla uyuşmuyor ya da çıktı hâlâ kesim payı bildiriyor.
+  case trimGeometryFailed(page: Int?)
+  /// Kesim çıktısının içeriği kaynaktan farklı render ediliyor (renk uzayı dönüşümü, saydamlık
+  /// düzleştirme, boş sayfa). Kayıpsız kipte beklenen fark 0,00 — bu hata gerçek bir hasar demek.
+  case trimFidelityFailed(percent: Double)
+  /// Kayıpsız kesim çıktısının İÇERİK ENVANTERİ kaynaktan farklı (görüntü/renk uzayı/font/XMP
+  /// sayısı ya da PDF sürümü değişmiş) — kayıpsız kipte bu olamaz, olduysa dosya yeniden yazılmış.
+  case trimContentChanged(String)
+  /// Çıktının İSKELETİ bozuk (bkz. `PDFStructureCheck`): dosya bazı okuyucularda açılıp
+  /// bazılarında açılmayacak durumda — teslim edilmez.
+  case outputStructureBroken(String)
   /// `MergeVerification` çıktı sayfa sayısının girdilerin toplamıyla uyuşmadığını tespit etti.
   case mergeVerificationFailed
   /// `SplitVerification` parça sayfa sayılarının toplamının kaynakla uyuşmadığını (ya da 0 sayfalı
@@ -96,6 +107,17 @@ public enum OperationError: Error, LocalizedError, Equatable {
     case .trimVerificationFailed(let percent):
       let formatted = String(format: "%.1f", percent)
       return "Bleed margin could not be fully removed (residual \(formatted)%) — output deleted"
+    case .trimGeometryFailed(let page):
+      let where_ = page.map { " (page \($0))" } ?? ""
+      return "Trimmed page size doesn't match the trim line\(where_) — output deleted"
+    case .trimFidelityFailed(let percent):
+      let formatted = String(format: "%.2f", percent)
+      return "Trimmed pages don't match the original content (\(formatted)% of pixels differ) "
+        + "— output deleted"
+    case .trimContentChanged(let detail):
+      return "Trim changed the file's content (\(detail)) — output deleted"
+    case .outputStructureBroken(let detail):
+      return "Output PDF structure is broken (\(detail)) — output deleted"
     case .mergeVerificationFailed:
       return "Merge could not be verified — page count mismatch, output deleted"
     case .splitVerificationFailed:

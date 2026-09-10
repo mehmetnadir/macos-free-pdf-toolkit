@@ -6,7 +6,7 @@ func usage() -> Never {
     """
     usage:
       pdftools unlock [--password PASSWORD] [--out DIR] <file.pdf|folder>...
-      pdftools trim [--out DIR] <file.pdf|folder>...
+      pdftools trim [--delete-outside] [--out DIR] <file.pdf|folder>...
       pdftools merge [--out DIR] <file.pdf>...
       pdftools split [--mode each|n:10|half] [--out DIR] <file.pdf|folder>...
       pdftools image [--format png|jpeg|heic] [--dpi 150] [--out DIR] <file.pdf|folder>...
@@ -107,10 +107,15 @@ switch command {
 case "engines":
   let engines = EngineLocator.availableEngines()
   for engine in engines { print("\(engine.name)\t\(engine.executable.path)") }
-  if let gs = EngineLocator.trimEngine() {
-    print("\(gs.name)\t\(gs.executable.path)")
+  if let trim = EngineLocator.losslessTrimEngine() {
+    print("trim (lossless)\t\(trim.executable.path)")
   } else {
-    print("gs\t(not found — Trim disabled; brew install ghostscript)")
+    print("trim (lossless)\t(qpdf not found — run packaging/build-engines.sh)")
+  }
+  if let gs = EngineLocator.ghostscript() {
+    print("gs\t\(gs.path)")
+  } else {
+    print("gs\t(not found — only needed to delete content outside the trim line while keeping links)")
   }
   if engines.isEmpty {
     print("no engines found — run packaging/build-engines.sh")
@@ -382,10 +387,21 @@ case "blank":
   }
 
 case "trim":
-  let (outputDirectory, inputs) = parseArguments(arguments)
+  // VARSAYILAN kayıpsız: yalnız sayfa kutuları küçülür, dosya yeniden yazılmaz. `--delete-outside`
+  // kesim çizgisi dışındaki içeriği gerçekten siler — bedeli (renk/çizgi kayması, üstveri kaybı)
+  // işlem sonucunda not olarak bildirilir.
+  var deleteOutside = false
+  let (outputDirectory, inputs) = parseArguments(arguments) { arg, _ in
+    guard arg == "--delete-outside" else { return false }
+    deleteOutside = true
+    return true
+  }
   let files = PDFFileInfo.collectPDFs(from: inputs)
   guard !files.isEmpty else { usage() }
-  let context = OperationContext(outputDirectory: outputDirectory)
+  let context = OperationContext(
+    outputDirectory: outputDirectory,
+    options: deleteOutside
+      ? [TrimOperation.outsideOptionID: TrimOperation.removeOutside] : [:])
   exit(await runPerFile(TrimOperation(), files: files, context: context))
 
 case "merge":

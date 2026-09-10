@@ -26,8 +26,9 @@ So this is a small Mac app instead:
 - **Every operation verifies its own output.** The engine saying "done" is not
   evidence. Unlock re-opens the file and rejects it if it is still encrypted;
   Merge counts pages against the sum of the inputs; Add QR scans the QR back
-  and fails if it does not decode; Trim renders past the declared page box and
-  looks for leftover ink. When verification fails, the output is deleted rather
+  and fails if it does not decode; Trim checks the result's cross-reference
+  table, every page's size, the file's image/font/metadata inventory and the
+  rendered pixels. When verification fails, the output is deleted rather
   than handed over.
 - **Honest results.** Where an operation costs you something — a lost text
   layer, lost links, a faint trace along an edge — the result line says so
@@ -71,7 +72,8 @@ text), and run.
 The window grows with the list rather than making you scroll a fixed frame:
 640×532 with one file, 640×578 with two, 640×716 with five. Every row adds
 46 pt, and the list stops growing at eight rows (640×854) and scrolls beyond
-that. The interface is in English.
+that. The interface is available in English and Turkish (**Language** in the
+application menu).
 
 Keyboard: **⌘N** new blank PDF, **⌘O** add files, **⇧⌘⌫** clear the list.
 
@@ -83,7 +85,7 @@ additionally needs `cmake`, `go`, `gh`.
 ```bash
 ./packaging/build-engines.sh   # builds qpdf + pdfcpu into vendor/bin/ (needs internet, repeatable)
 swift build                    # universal build: swift build --arch arm64 --arch x86_64
-swift test                     # 161 tests, Tests/PDFToolsCoreTests/
+swift test                     # 182 tests, Tests/PDFToolsCoreTests/
 ./packaging/build.sh           # produces build/PDF Tools.app (set SIGN_IDENTITY for a Developer ID signature)
 ```
 
@@ -131,44 +133,69 @@ pdftools encrypt [--password PASSWORD] [--owner-password PASSWORD] \
 
 #### Trim Bleed
 
-Permanently discards the printer's bleed/trim margin — the TrimBox and
-everything outside it — so the file matches the finished page. The card is only
-enabled for files that actually declare a bleed.
+Resizes every page down to the trim line, so the printer's bleed margin is no
+longer part of the page. The card is only enabled for files that actually
+declare a bleed.
 
-**This no longer requires Ghostscript.** The default engine is CoreGraphics,
-which is part of macOS. Measured on a real book page with a 5 mm bleed:
+| Option | Values | Default |
+|---|---|---|
+| Content outside the trim line | *Keep it — the file is not rewritten* · *Delete it — every page is redrawn* | Keep it |
 
-| Engine | Ink left outside the trim box | Pixel difference inside the trim box | Links / form fields kept |
+**The default does not rewrite your file.** It changes nothing but the page
+boxes: `/MediaBox` and `/CropBox` become the `/TrimBox`, and `/TrimBox`,
+`/BleedBox` and `/ArtBox` are dropped so the file no longer claims to have a
+bleed. Content streams, images, fonts, colour profiles, annotations, bookmarks
+and XMP packets are carried over untouched — the engine is the bundled qpdf,
+driven through its JSON update mode, and nothing is re-drawn or re-encoded.
+
+Why that is the default: the previous default re-drew every page through
+CoreGraphics, and re-drawing a print-ready PDF is not free. Measured on three
+real publisher files (3.7 MB, 1.8 MB, 18.6 MB; 3 mm and 5 mm bleeds):
+
+| | source | box trim (default) | redraw |
 |---|---|---|---|
-| CoreGraphics (default) | 0.00% | 0.03/255 | no |
-| Ghostscript | 0.00% | 4.02/255 | yes |
-| pdfcpu | 11.65% | — | — (ruled out) |
+| Cross-reference entries pointing at byte 0 | 0 | **0** | **64 / 5 / 31** |
+| PDF version | 1.4 / 1.4 / 1.6 | preserved | **lowered to 1.3** |
+| Rendered pixels differing from the source | — | **0.00%** | **2.05%**, largest single-channel difference 250/255 |
+| Image colour spaces | 86 `/DeviceGray` | unchanged | **57 re-tagged `/ICCBased`** |
+| XMP metadata streams | 7 | 7 | **0** |
+| Embedded fonts | 23 | 23 | 125 (re-embedded per page) |
+| Images | 14 | 14 | **2853** (vector artwork sliced into tiles) |
+| File size | — | −13% … −36% | +37% |
 
-CoreGraphics is the more faithful of the two working engines inside the trim
-box: Ghostscript re-encodes the images on the way through (`/prepress`), which
-shows up as a 4.02/255 difference where CoreGraphics leaves 0.03/255. Extracted
-text is byte-identical either way.
+Those broken cross-reference entries are why this was rewritten: the old output
+opened fine in Preview, and the old single gate called it clean, but a stricter
+reader rejected it outright with `Rebuild failed: Dictionary key 16 is not a
+name`. An output that opens in one reader and fails in another is the worst kind
+of result, so a trimmed file now has to pass **four independent gates** before it
+is handed over — any one of them failing deletes the output:
 
-There is a cost, and the app does not hide it. Because CoreGraphics re-draws
-the page, it cannot carry annotations across: on a real 12-page file, **all 24
-annotations (links and form fields) were lost with CoreGraphics and all 24 were
-kept with Ghostscript**. So the engine is chosen **per file**:
+1. **Structure** — `qpdf --check` on the result must report no broken
+   cross-reference offsets and no errors.
+2. **Geometry** — every page (all of them, not a sample) must measure the trim
+   size the source declared for that page, and no page may still declare a
+   bleed.
+3. **Inventory** — image count, images per colour space, embedded fonts,
+   metadata streams and the PDF version must all survive. This gate exists
+   because the pixel gate below is *blind* to colour-management damage: it
+   renders through CoreGraphics, which reproduces its own re-tagging faithfully
+   and therefore sees nothing wrong.
+4. **Rendered pixels** — the first, middle and last page must render identically
+   to the source's trim area (measured: 0.00% differing).
 
-- The file has no annotations → CoreGraphics, which is better in every measured
-  respect.
-- The file has annotations and Ghostscript is installed → Ghostscript, to keep
-  them.
-- The file has annotations and Ghostscript is missing → the trim still runs, and
-  the result line states how many links or form fields could not be kept, with
-  the install hint.
+Choosing *Delete it* re-draws the pages (Ghostscript if the file has annotations
+and gs is installed, CoreGraphics otherwise), then passes the result through
+qpdf so the cross-reference table is sound again, and the result line spells out
+what re-drawing changed — colour spaces, dropped metadata, a lowered version.
+That mode is available, but nothing about its cost is hidden.
 
-Verification renders past the declared page box and measures leftover ink;
-an output that still shows bleed is deleted rather than accepted, and a faint
-trace along the edges is reported as such. An inconsistent TrimBox across pages
-is reported too. Progress is per page.
+Annotations: re-drawing with CoreGraphics loses them (measured: 24 of 24 on a
+real file), Ghostscript keeps them, and the default mode keeps them because it
+never re-draws. An inconsistent TrimBox across pages is reported. Progress is
+per page.
 
 ```bash
-pdftools trim [--out DIR] <file.pdf|folder>...
+pdftools trim [--delete-outside] [--out DIR] <file.pdf|folder>...
 ```
 
 #### Blank PDF
@@ -616,7 +643,7 @@ The trim-engine comparison is in [Trim Bleed](#trim-bleed).
 
 ## Testing
 
-`swift test` runs **161 tests**. Five of them depend on what the machine has:
+`swift test` runs **182 tests**. Five of them depend on what the machine has:
 three need Ghostscript, one needs Ghostscript to be *absent* (it checks the
 error message you get without it), and one needs Vision's Turkish language pack.
 So a Mac with `gs` and Turkish Vision skips 1, while CI — which has neither —

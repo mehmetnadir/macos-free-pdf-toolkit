@@ -10,6 +10,17 @@ import XCTest
 /// 24'ü kayboldu, aynı dosya Ghostscript ile kesildiğinde hepsi korundu. Kayıp SESSİZ: dosya
 /// açılır, sayfalar yerindedir, yalnız bağlantılar çalışmaz. Bu testler o sessizliği kapatır.
 final class AnnotationTests: XCTestCase {
+  /// Kesim artık VARSAYILAN olarak paketlenmiş qpdf'i kullanıyor (bkz. `QPDFTrimEngine`), o yüzden
+  /// bu sınıfın da motor arama yolunu ayarlaması gerekiyor: `xctest` çalıştırıcısı altında
+  /// `Bundle.main` test koşucusudur, `vendor/bin` kendiliğinden bulunmaz (aynı kurulum
+  /// Tur1Tests/PageEditTests/UnlockTests içinde de var).
+  override func setUp() {
+    super.setUp()
+    let repoRoot = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    EngineLocator.extraDirectories = [repoRoot.appendingPathComponent("vendor/bin")]
+  }
+
   private func makeTempDirectory() throws -> URL {
     let dir = FileManager.default.temporaryDirectory
       .appendingPathComponent("pdftools-annot-\(UUID().uuidString)", isDirectory: true)

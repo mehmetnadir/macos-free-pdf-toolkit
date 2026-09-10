@@ -58,14 +58,25 @@ public enum EngineLocator {
     extraDirectories + ["/opt/homebrew/bin", "/usr/local/bin"].map { URL(fileURLWithPath: $0) }
   }
 
-  /// Kesim (trim) için TERCİH EDİLEN motor. VARSAYILAN: `CoreGraphicsTrimEngine` — alt-süreç
-  /// gerektirmez, macOS'ta HER ZAMAN mevcuttur (ölçüm ve gerekçe: `CoreGraphicsTrimEngine.swift`
-  /// dosya üstü yorumu — gs kadar temiz, ondan daha sadık, lisans sorunu yok). Bu yüzden bu
-  /// fonksiyon artık PRATİKTE HİÇ `nil` DÖNMEZ; `gs` yedek olarak hâlâ KULLANILABİLİR ama buradan
-  /// DÖNMÜYOR — ham `gs` ikilisinin yoluna ihtiyaç duyan çağıranlar (ör. `CompressOperation`'ın
-  /// kendi `gs -dPDFSETTINGS=/ebook` çağrısı) `ghostscript()`'i kullanmalı.
-  public static func trimEngine() -> (any TrimEngine)? {
-    CoreGraphicsTrimEngine()
+  /// Kesim için VARSAYILAN motor: KAYIPSIZ kutu kesimi (qpdf) — sayfayı yeniden çizmez, dosyanın
+  /// yapısına dokunmaz (gerekçe ve ölçümler: `QPDFTrimEngine.swift` dosya üstü yorumu).
+  ///
+  /// qpdf pakette GELİR; bulunamaması bir kurulum arızasıdır. Bu yüzden burada sessizce
+  /// yeniden-yazan motora DÜŞMÜYORUZ: eski sürümde varsayılan `CoreGraphicsTrimEngine` idi ve
+  /// kullanıcı, yapısı bozulmuş (xref'i kırık) bir çıktı aldığını ancak dosyayı başka bir sisteme
+  /// verdiğinde anladı. Sessiz düşürme yerine çağıran (bkz. `TrimOperation`) kullanıcıya söyler.
+  public static func losslessTrimEngine() -> QPDFTrimEngine? {
+    find("qpdf").map { QPDFTrimEngine(executable: $0) }
+  }
+
+  /// Sayfaları YENİDEN YAZAN kesim motoru — yalnızca kullanıcı kesim çizgisi dışındaki içeriğin
+  /// dosyadan GERÇEKTEN silinmesini istediğinde (`TrimOperation`ın "remove" kipi). İki motorun da
+  /// bedeli var, ölçüldü: gs açıklamaları (bağlantı/form alanı) KORUR ama içeriği daha fazla
+  /// oynatır; CoreGraphics kurulum gerektirmez ve daha sadık çizer ama açıklamaları KAYBEDER.
+  /// Bu yüzden tercih dosyaya göre yapılır (bkz. çağıranın açıklama sayımı).
+  public static func rewriteTrimEngine(preferGhostscript: Bool) -> any TrimEngine {
+    if preferGhostscript, let gs = ghostscript() { return GhostscriptEngine(executable: gs) }
+    return CoreGraphicsTrimEngine()
   }
 
   /// Ghostscript ikilisinin KENDİ yolu — yalnızca `gs`'i doğrudan bir alt-süreç olarak çalıştırmak

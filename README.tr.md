@@ -27,8 +27,9 @@ Onun yerine küçük bir Mac uygulaması:
 - **Her işlem kendi çıktısını doğrular.** Motorun "bitti" demesi kanıt değildir.
   Kilit Aç dosyayı yeniden açar ve hâlâ şifreliyse reddeder; Birleştir sayfa
   sayısını girdilerin toplamıyla karşılaştırır; QR Ekle çıktıyı geri tarar ve
-  okunmuyorsa hata verir; Kesim Payı, bildirilen sayfa kutusunun dışına taşarak
-  render eder ve kalıntı mürekkep arar. Doğrulama başarısızsa çıktı teslim
+  okunmuyorsa hata verir; Kesim Payı çıktının çapraz başvuru tablosunu, her
+  sayfanın ölçüsünü, dosyanın görüntü/font/üstveri envanterini ve render edilen
+  pikselleri denetler. Doğrulama başarısızsa çıktı teslim
   edilmez, silinir.
 - **Sonuçlar dürüst.** Bir işlemin bir bedeli varsa — kaybolan metin katmanı,
   kaybolan bağlantılar, kenarda kalan silik bir iz — sonuç satırı bunu sessizce
@@ -70,7 +71,8 @@ karta dokun, gerekeni gir (parola, QR içeriği, filigran metni) ve çalıştır
 Pencere sabit bir çerçevede kaydırmaya zorlamak yerine listeyle birlikte büyür:
 tek dosyada 640×532, iki dosyada 640×578, beş dosyada 640×716. Her satır 46 pt
 ekler; liste sekiz satırda büyümeyi bırakır (640×854) ve ötesinde kendi içinde
-kaydırılır. Arayüzün tamamı İngilizce.
+kaydırılır. Arayüz İngilizce ve Türkçe kullanılabiliyor (uygulama menüsünde
+**Language**).
 
 Klavye: **⌘N** yeni boş PDF, **⌘O** dosya ekle, **⇧⌘⌫** listeyi temizle.
 
@@ -82,7 +84,7 @@ Gereksinimler: macOS 14+, Xcode 26 / Swift 6.3. Motor derlemesi için ek olarak
 ```bash
 ./packaging/build-engines.sh   # qpdf + pdfcpu'yu vendor/bin/'e derler (internet gerekir, tekrarlanabilir)
 swift build                    # universal derleme: swift build --arch arm64 --arch x86_64
-swift test                     # 161 test, Tests/PDFToolsCoreTests/
+swift test                     # 182 test, Tests/PDFToolsCoreTests/
 ./packaging/build.sh           # build/PDF Tools.app üretir (Developer ID imzası için SIGN_IDENTITY)
 ```
 
@@ -130,43 +132,69 @@ pdftools encrypt [--password PAROLA] [--owner-password PAROLA] \
 
 #### Trim Bleed — Kesim Payını At
 
-Matbaa kesim/taşma payını — TrimBox'ı ve dışında kalan her şeyi — kalıcı olarak
-atar, böylece dosya bitmiş sayfayla örtüşür. Kart yalnızca gerçekten kesim payı
-bildiren dosyalar için etkinleşir.
+Her sayfayı kesim çizgisine küçültür; matbaa taşma payı böylece sayfanın parçası
+olmaktan çıkar. Kart yalnızca gerçekten kesim payı bildiren dosyalar için
+etkinleşir.
 
-**Bu işlem artık Ghostscript gerektirmiyor.** Varsayılan motor, macOS'un parçası
-olan CoreGraphics. Gerçek bir kitap sayfasında, 5 mm kesim payıyla ölçüldü:
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Kesim çizgisi dışındaki içerik | *Kalsın — dosya yeniden yazılmaz* · *Silinsin — her sayfa yeniden çizilir* | Kalsın |
 
-| Motor | Kesim kutusu dışında kalan mürekkep | Kesim kutusu içinde piksel farkı | Bağlantı / form alanı korunur mu |
+**Varsayılan kip dosyayı yeniden YAZMAZ.** Yalnızca sayfa kutularını değiştirir:
+`/MediaBox` ve `/CropBox` `/TrimBox` olur; `/TrimBox`, `/BleedBox` ve `/ArtBox`
+kaldırılır, böylece dosya artık "kesim payım var" demez. İçerik akışları,
+görüntüler, fontlar, renk profilleri, açıklamalar, yer imleri ve XMP paketleri
+olduğu gibi geçer — motor pakette gelen qpdf ve onun JSON güncelleme kipi;
+hiçbir şey yeniden çizilmiyor, yeniden kodlanmıyor.
+
+Varsayılanın böyle olmasının sebebi: eski varsayılan her sayfayı CoreGraphics
+ile yeniden çiziyordu ve baskıya hazır bir PDF'i yeniden çizmek bedelsiz değil.
+Üç gerçek yayınevi dosyasında ölçüldü (3,7 MB, 1,8 MB, 18,6 MB; 3 mm ve 5 mm
+kesim payı):
+
+| | kaynak | kutu kesimi (varsayılan) | yeniden çizim |
 |---|---|---|---|
-| CoreGraphics (varsayılan) | %0,00 | 0,03/255 | hayır |
-| Ghostscript | %0,00 | 4,02/255 | evet |
-| pdfcpu | %11,65 | — | — (elendi) |
+| 0. bayta işaret eden çapraz başvuru girdisi | 0 | **0** | **64 / 5 / 31** |
+| PDF sürümü | 1.4 / 1.4 / 1.6 | korunuyor | **1.3'e düşüyor** |
+| Kaynaktan farklı render edilen piksel | — | **%0,00** | **%2,05**, en büyük tek kanal farkı 250/255 |
+| Görüntü renk uzayları | 86 `/DeviceGray` | değişmiyor | **57'si `/ICCBased`e dönüyor** |
+| XMP üstveri akışı | 7 | 7 | **0** |
+| Gömülü font | 23 | 23 | 125 (her sayfaya yeniden gömülüyor) |
+| Görüntü sayısı | 14 | 14 | **2853** (vektör iş karolara bölünüyor) |
+| Dosya boyutu | — | %13 … %36 küçülüyor | %37 büyüyor |
 
-Kesim kutusunun içinde, çalışan iki motorun daha sadık olanı CoreGraphics:
-Ghostscript geçiş sırasında görselleri yeniden kodluyor (`/prepress`), bu da
-4,02/255 fark olarak görünüyor; CoreGraphics 0,03/255 bırakıyor. Çıkarılan metin
-iki yolda da bit bit aynı.
+Bu kırık çapraz başvuru girdileri işin yeniden yazılma sebebi: eski çıktı
+Preview'da sorunsuz açılıyordu ve eski tek kapı da "temiz" diyordu, ama katı bir
+okuyucu dosyayı düpedüz reddetti: `Rebuild failed: Dictionary key 16 is not a
+name`. Bir okuyucuda açılıp diğerinde açılmayan çıktı en kötü sonuç türüdür; bu
+yüzden kesilmiş bir dosya teslim edilmeden önce **dört bağımsız kapıdan** geçmek
+zorunda — herhangi biri düşerse çıktı silinir:
 
-Bir bedeli var ve uygulama bunu saklamıyor. CoreGraphics sayfayı yeniden
-çizdiği için açıklamaları taşıyamıyor: gerçek bir 12 sayfalık dosyada
-**24 açıklamanın (bağlantı ve form alanı) 24'ü CoreGraphics ile kayboldu,
-24'ünün 24'ü Ghostscript ile korundu**. Bu yüzden motor **dosyaya göre**
-seçiliyor:
+1. **Yapı** — sonuçta `qpdf --check` hiçbir kırık çapraz başvuru offset'i ve
+   hata bildirmemeli.
+2. **Geometri** — HER sayfa (örnekleme yok) kaynağın o sayfa için bildirdiği
+   kesim ölçüsünde olmalı ve hiçbir sayfa hâlâ kesim payı bildirmemeli.
+3. **Envanter** — görüntü sayısı, renk uzayı başına görüntü sayısı, gömülü font,
+   üstveri akışı ve PDF sürümü korunmalı. Bu kapı şu yüzden var: aşağıdaki
+   piksel kapısı renk yönetimi hasarına **kör** — ölçümü CoreGraphics ile
+   yapıyor, o da kendi yeniden etiketlemesini sadakatle geri üretiyor ve hiçbir
+   sorun görmüyor.
+4. **Render edilen piksel** — ilk, orta ve son sayfa kaynağın kesim alanıyla
+   birebir aynı render edilmeli (ölçüldü: %0,00 fark).
 
-- Dosyada açıklama yok → CoreGraphics; ölçülen her bakımdan daha iyi.
-- Dosyada açıklama var ve Ghostscript kurulu → onları korumak için Ghostscript.
-- Dosyada açıklama var ama Ghostscript yok → kesim yine yapılır, sonuç satırı
-  kaç bağlantının veya form alanının korunamadığını kurulum ipucuyla birlikte
-  söyler.
+*Silinsin* seçilirse sayfalar yeniden çizilir (dosyada açıklama varsa ve gs
+kuruluysa Ghostscript, yoksa CoreGraphics), sonuç çapraz başvuru tablosu sağlam
+olsun diye qpdf'ten geçirilir ve sonuç satırı yeniden çizmenin neyi değiştirdiğini
+tek tek söyler: renk uzayları, silinen üstveri, düşen sürüm. Bu kip
+kullanılabilir, ama bedeli gizlenmiyor.
 
-Doğrulama, bildirilen sayfa kutusunun dışına taşarak render eder ve kalıntı
-mürekkebi ölçer; hâlâ kesim payı görünen çıktı kabul edilmez, silinir; kenarda
-kalan silik iz ise böyle raporlanır. Sayfalar arasında tutarsız TrimBox da
-bildirilir. İlerleme sayfa başına verilir.
+Açıklamalar: CoreGraphics ile yeniden çizim onları kaybediyor (ölçüldü: gerçek
+bir dosyada 24'ün 24'ü), Ghostscript koruyor; varsayılan kip hiç yeniden
+çizmediği için zaten koruyor. Sayfalar arasında tutarsız TrimBox bildirilir.
+İlerleme sayfa başına verilir.
 
 ```bash
-pdftools trim [--out KLASÖR] <dosya.pdf|klasör>...
+pdftools trim [--delete-outside] [--out KLASÖR] <dosya.pdf|klasör>...
 ```
 
 #### Blank PDF — Boş PDF
@@ -619,7 +647,7 @@ bölümünde.
 
 ## Testler
 
-`swift test` **161 test** koşar. Beşi makinede ne olduğuna bağlı: üçü
+`swift test` **182 test** koşar. Beşi makinede ne olduğuna bağlı: üçü
 Ghostscript istiyor, biri Ghostscript'in KURULU OLMAMASINI istiyor (gs yokken
 alınan hata mesajını sınıyor), biri de Vision'ın Türkçe dil desteğini istiyor.
 Yani gs'li ve Türkçe Vision'lı bir Mac'te 1 test atlanır; ikisi de olmayan
