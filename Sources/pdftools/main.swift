@@ -33,7 +33,7 @@ func usage() -> Never {
                           [--start-at 1] [--format plain|ofN] [--out DIR] <file.pdf|folder>...
       pdftools bookmarks [--mode export|import] [--file bookmarks.json]
                          [--out DIR] <file.pdf|folder>...
-      pdftools blank [--pages 10] [--size a4|a5|a3|letter|legal|tabloid]
+      pdftools blank [--pages 1] [--size a4|a5|a3|letter|legal|tabloid]
                      [--width MM --height MM] [--landscape] [--out FILE.pdf|DIR]
       pdftools engines
     """)
