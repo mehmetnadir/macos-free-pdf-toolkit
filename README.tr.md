@@ -67,12 +67,10 @@ soluk kalır: hiçbir dosya şifreli değilse Unlock "already unlocked", kesim p
 yoksa Trim Bleed "No bleed margin found" yazar. Farklı bir işlem istersen bir
 karta dokun, gerekeni gir (parola, QR içeriği, filigran metni) ve çalıştır.
 
-Dosya listesi sabit bir çerçeve içinde kaydırmak yerine — sekiz satıra kadar —
-her dosyayı bir arada gösterecek şekilde boyutlanır; pencerenin asgari
-yüksekliği de listeyle birlikte büyür (satır başına 46 pt), böylece satırlar
-görünmez olacak kadar sıkıştırılamaz. Temiz bir tercih alanıyla açıldığında
-pencere bir ile beş dosyada 640×716, sekiz ve üzerinde 640×854 açılır; sekiz
-satırdan sonra listenin kendisi kaydırılır. Arayüzün tamamı İngilizce.
+Pencere sabit bir çerçevede kaydırmaya zorlamak yerine listeyle birlikte büyür:
+tek dosyada 640×532, iki dosyada 640×578, beş dosyada 640×716. Her satır 46 pt
+ekler; liste sekiz satırda büyümeyi bırakır (640×854) ve ötesinde kendi içinde
+kaydırılır. Arayüzün tamamı İngilizce.
 
 Klavye: **⌘N** yeni boş PDF, **⌘O** dosya ekle, **⇧⌘⌫** listeyi temizle.
 

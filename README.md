@@ -68,12 +68,10 @@ found" when there is no bleed to remove. Tap a card to pick a different
 operation, fill in whatever it needs (a password, a QR payload, a watermark
 text), and run.
 
-The file list is sized to show every file at once — up to eight rows — instead
-of scrolling inside a fixed frame, and the window's minimum height grows with it
-(46 pt per row), so rows cannot be squeezed out of sight. Launched with a clean
-preference domain, the window opens at 640×716 for one to five files and 640×854
-for eight or more; beyond eight rows the list itself scrolls. The interface is in
-English.
+The window grows with the list rather than making you scroll a fixed frame:
+640×532 with one file, 640×578 with two, 640×716 with five. Every row adds
+46 pt, and the list stops growing at eight rows (640×854) and scrolls beyond
+that. The interface is in English.
 
 Keyboard: **⌘N** new blank PDF, **⌘O** add files, **⇧⌘⌫** clear the list.
 
