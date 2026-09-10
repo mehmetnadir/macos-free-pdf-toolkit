@@ -37,6 +37,11 @@ final class AppModel {
   var items: [FileItem] = []
   var selectedOperationID: String = UnlockOperation.identifier
   var password: String = ""
+  /// Modelin ürettiği metinlerin (özet satırı, atlama/hata mesajları) dili. HESAPLANAN:
+  /// saklanan bir özellik olsaydı birinin onu ATAMASI gerekirdi ve atamayı unutmak sessiz bir
+  /// arıza üretirdi — model metinleri sistem dilinde, kartlar seçilen dilde kalırdı.
+  /// Tek kaynak `LanguageSetting.shared` (aynı kaynağı iki pencere yolu da okur).
+  var locale: Locale { LanguageSetting.shared.language.locale }
   /// İşlem seçenekleri, işlem başına saklanır (dıştaki anahtar `operationID`, içteki `optionID`) —
   /// işlem değiştirildiğinde diğerinin seçimleri sıfırlanmaz.
   var optionValues: [String: [String: String]] = [:]
@@ -121,8 +126,8 @@ final class AppModel {
     return hasEngine
   }
   var missingEngineMessage: String {
-    if requiresQPDFOnly { return "qpdf engine not found" }
-    return "No PDF engine found"
+    if requiresQPDFOnly { return L10n.tr("qpdf engine not found", locale: locale) }
+    return L10n.tr("No PDF engine found", locale: locale)
   }
   /// Şifre alanı yalnızca Kilit Aç için anlamlı; diğer işlemler şifre kabul etmiyor.
   var needsPassword: Bool {
@@ -143,19 +148,32 @@ final class AppModel {
   /// yazılır (bkz. görev tanımı, Tur 3). Dosya yoksa `nil` (satır hiç gösterilmez).
   var analysisSummary: String? {
     guard !items.isEmpty else { return nil }
-    var parts = [counted(items.count, "file")]
+    let fileText = items.count == 1
+      ? L10n.tr("1 file", locale: locale)
+      : L10n.text("%d files", locale: locale, items.count)
+    var parts = [fileText]
     let totalPages = items.reduce(0) { $0 + $1.info.pageCount }
-    if totalPages > 0 { parts.append(counted(totalPages, "page")) }
+    if totalPages > 0 {
+      let pageText = totalPages == 1
+        ? L10n.tr("1 page", locale: locale)
+        : L10n.text("%d pages", locale: locale, totalPages)
+      parts.append(pageText)
+    }
     let lockedCount = items.filter {
       $0.info.lockState == .restricted || $0.info.lockState == .passwordRequired
     }.count
-    if lockedCount > 0 { parts.append("\(lockedCount) encrypted") }
+    if lockedCount > 0 {
+      parts.append(L10n.text("%d encrypted", locale: locale, lockedCount))
+    }
     let bleedItems = items.filter { $0.info.hasBleed }
     if !bleedItems.isEmpty, let inset = bleedItems.first?.info.bleedInsetPoints {
       let mm = Double(inset) / 72 * 25.4
       let formatted = mm.formatted(
         .number.precision(.fractionLength(0)).locale(Locale(identifier: "en_US")))
-      parts.append("\(formatted) mm bleed on \(counted(bleedItems.count, "file"))")
+      let bleedFileText = bleedItems.count == 1
+        ? L10n.tr("1 file", locale: locale)
+        : L10n.text("%d files", locale: locale, bleedItems.count)
+      parts.append(L10n.text("%@ mm bleed on %@", locale: locale, formatted, bleedFileText))
     }
     return parts.joined(separator: " · ")
   }
@@ -164,8 +182,10 @@ final class AppModel {
     let done = items.filter { $0.status.isDone }.count
     let failed = items.filter { $0.status.isFailed }.count
     guard done + failed > 0 else { return nil }
-    var parts = ["\(done) done"]
-    if failed > 0 { parts.append("\(failed) failed") }
+    var parts = [L10n.text("%d done", locale: locale, done)]
+    if failed > 0 {
+      parts.append(L10n.text("%d failed", locale: locale, failed))
+    }
     return parts.joined(separator: " · ")
   }
 
@@ -234,8 +254,8 @@ final class AppModel {
     panel.allowedContentTypes = [.pdf]
     panel.allowsMultipleSelection = true
     panel.canChooseDirectories = true
-    panel.message = "Choose PDF files or folders"
-    panel.prompt = "Add"
+    panel.message = L10n.tr("Choose PDF files or folders", locale: locale)
+    panel.prompt = L10n.tr("Add", locale: locale)
     guard panel.runModal() == .OK else { return }
     let urls = panel.urls
     Task { await add(urls: urls) }
@@ -277,7 +297,7 @@ final class AppModel {
     let panel = NSSavePanel()
     panel.allowedContentTypes = [.pdf]
     panel.nameFieldStringValue = "Blank.pdf"
-    panel.message = "Where should the blank PDF go?"
+    panel.message = L10n.tr("Where should the blank PDF go?", locale: locale)
     guard panel.runModal() == .OK, let url = panel.url else { return }
     do {
       try BlankPDF.create(pageCount: pageCount, size: size, at: url, overwrite: true)
@@ -359,7 +379,7 @@ final class AppModel {
             }
             let mergedName = urls.first?.lastPathComponent ?? ""
             for id in pendingIDs.dropFirst() {
-              update(id, .skipped("merged → \(mergedName)"))
+              update(id, .skipped(L10n.text("merged → %@", locale: locale, mergedName)))
             }
           case .skipped(let reason):
             for id in pendingIDs { update(id, .skipped(reason)) }
@@ -420,7 +440,9 @@ final class AppModel {
   func applyPageEdit(targetID: FileItem.ID, pageOrder: String, rotations: String) {
     guard !isRunning, let info = items.first(where: { $0.id == targetID })?.info else { return }
     let otherPendingIDs = items.filter { $0.status.isPending && $0.id != targetID }.map(\.id)
-    for id in otherPendingIDs { update(id, .skipped("page editing works on a single file")) }
+    for id in otherPendingIDs {
+      update(id, .skipped(L10n.tr("page editing works on a single file", locale: locale)))
+    }
 
     var options: [String: String] = [PageEditOperation.pageOrderOptionID: pageOrder]
     if !rotations.isEmpty { options[PageEditOperation.rotationsOptionID] = rotations }

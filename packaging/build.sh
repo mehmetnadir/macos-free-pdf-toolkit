@@ -51,6 +51,23 @@ if [ -d vendor/licenses ]; then
   mkdir -p "$APP/Contents/Resources/licenses"
   cp vendor/licenses/* "$APP/Contents/Resources/licenses/"
 fi
+# SwiftPM kaynak paketleri (Bundle.module) — çeviri tabloları burada yaşıyor.
+# ZORUNLU: `Bundle.module` bulunamazsa SwiftPM'in ürettiği erişimci fatalError atar, yani
+# uygulama AÇILIŞTA ÇÖKER. Ayrıca paket kopyalanıp da içindeki .lproj eksikse çökme olmaz,
+# arayüz SESSİZCE İngilizce kalır — o yüzden hem varlık hem içerik denetleniyor.
+for bundle in "$BIN"/PDFTools_PDFToolsApp.bundle "$BIN"/PDFTools_PDFToolsCore.bundle; do
+  [ -d "$bundle" ] || { echo "HATA: $bundle yok — kaynak paketi üretilmemiş" >&2; exit 1; }
+  ditto "$bundle" "$APP/Contents/Resources/$(basename "$bundle")"
+done
+for bundle in "$APP/Contents/Resources"/PDFTools_*.bundle; do
+  if ! find "$bundle" -name "Localizable.strings" -path "*tr.lproj*" | grep -q .; then
+    echo "HATA: $(basename "$bundle") içinde tr.lproj/Localizable.strings yok —" >&2
+    echo "      Türkçe seçildiğinde arayüz sessizce İngilizce kalırdı." >&2
+    exit 1
+  fi
+done
+echo "kaynak paketleri kopyalandı (tr.lproj doğrulandı)"
+
 # Sparkle.framework (varsa) — paralel bir ajan Package.swift'e ekliyor olabilir; henüz
 # eklenmemişse otomatik güncelleme OLMADAN paketlenir (regresyon yok, betik yine tamamlanır).
 # symlink yapısı (Versions/Current -> sürüm dizini) korunmalı diye `cp -R` değil `ditto`.
@@ -97,6 +114,11 @@ SIGN_OPTS=(--force --sign "$SIGN_IDENTITY")
 [ "$SIGN_IDENTITY" != "-" ] && SIGN_OPTS+=(--options runtime --timestamp)
 for f in "$APP/Contents/Resources/bin/"* "$APP/Contents/MacOS/pdftools" "$APP/Contents/MacOS/PDFToolsApp"; do
   codesign "${SIGN_OPTS[@]}" "$f"
+done
+# İç içe paketler (kaynak paketleri) kendi imzalarını taşımak zorunda; yoksa
+# `codesign --verify --deep` dış imzayı geçersiz sayar.
+for bundle in "$APP/Contents/Resources"/PDFTools_*.bundle; do
+  codesign "${SIGN_OPTS[@]}" "$bundle"
 done
 # Sparkle.framework gömülüyse: en içteki parçalar önce, framework en son (Apple'ın "inside-out"
 # imzalama sırası). Framework'ün kendi imzası olabileceğinden SIGN_OPTS'taki --force şart.

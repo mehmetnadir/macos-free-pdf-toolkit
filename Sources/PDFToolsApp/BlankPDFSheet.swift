@@ -13,6 +13,7 @@ struct BlankPDFSheet: View {
   let onCreate: (Int, PageSize) -> Void
   let onCancel: () -> Void
 
+  @Environment(\.locale) private var locale
   @State private var pageCount = 1
   @State private var selectedName = PageSize.a4.name
   @State private var customWidthMM = 210.0
@@ -37,11 +38,11 @@ struct BlankPDFSheet: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text("New Blank PDF").font(.title3.weight(.semibold))
+      Text(L10n.tr("New Blank PDF", locale: locale)).font(.title3.weight(.semibold))
 
       Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
         GridRow {
-          Text("Pages")
+          Text(L10n.tr("Pages", locale: locale))
           HStack(spacing: 8) {
             TextField("", value: $pageCount, format: .number)
               .textFieldStyle(.roundedBorder)
@@ -50,13 +51,13 @@ struct BlankPDFSheet: View {
           }
         }
         GridRow {
-          Text("Size")
+          Text(L10n.tr("Size", locale: locale))
           Picker("", selection: $selectedName) {
             ForEach(PageSize.standard, id: \.name) { size in
-              Text(size.name).tag(size.name)
+              Text(L10n.tr(size.name, locale: locale)).tag(size.name)
             }
             Divider()
-            Text("Custom…").tag(Self.customName)
+            Text(L10n.tr("Custom…", locale: locale)).tag(Self.customName)
           }
           .labelsHidden()
           .frame(width: 170)
@@ -75,10 +76,10 @@ struct BlankPDFSheet: View {
           }
         }
         GridRow {
-          Text("Orientation")
+          Text(L10n.tr("Orientation", locale: locale))
           Picker("", selection: $isLandscape) {
-            Text("Portrait").tag(false)
-            Text("Landscape").tag(true)
+            Text(L10n.tr("Portrait", locale: locale)).tag(false)
+            Text(L10n.tr("Landscape", locale: locale)).tag(true)
           }
           .pickerStyle(.segmented)
           .labelsHidden()
@@ -92,8 +93,8 @@ struct BlankPDFSheet: View {
 
       HStack {
         Spacer()
-        Button("Cancel", action: onCancel).keyboardShortcut(.cancelAction)
-        Button("Create…") { onCreate(pageCount, chosenSize) }
+        Button(L10n.tr("Cancel", locale: locale), action: onCancel).keyboardShortcut(.cancelAction)
+        Button(L10n.tr("Create…", locale: locale)) { onCreate(pageCount, chosenSize) }
           .buttonStyle(.borderedProminent)
           .keyboardShortcut(.defaultAction)
           .disabled(!isValid)
@@ -105,11 +106,15 @@ struct BlankPDFSheet: View {
 
   /// Kullanıcı ne üreteceğini ONAYLAMADAN ÖNCE görsün: sayfa sayısı + iki birimde ölçü.
   private var measurementSummary: String {
-    guard isValid else { return "Enter at least 1 page and a size larger than zero" }
+    guard isValid else {
+      return L10n.tr("Enter at least 1 page and a size larger than zero", locale: locale)
+    }
     let size = chosenSize
     let widthMM = size.width * 25.4 / 72
     let heightMM = size.height * 25.4 / 72
-    let pages = pageCount == 1 ? "1 page" : "\(pageCount) pages"
+    let pages = pageCount == 1
+      ? L10n.tr("1 page", locale: locale)
+      : L10n.text("%d pages", locale: locale, pageCount)
     return String(
       format: "%@ · %.0f × %.0f mm · %.0f × %.0f pt",
       pages, widthMM, heightMM, size.width, size.height)

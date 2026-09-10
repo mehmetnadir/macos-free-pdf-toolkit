@@ -33,6 +33,7 @@ struct PageGridView: View {
     var isRotated: Bool { targetRotation != baseRotation }
   }
 
+  @Environment(\.locale) private var locale
   @State private var cells: [Cell] = []
   @State private var selection: Set<Int> = []
   @State private var anchorID: Int?
@@ -83,22 +84,27 @@ struct PageGridView: View {
   private var header: some View {
     HStack(spacing: 10) {
       VStack(alignment: .leading, spacing: 2) {
-        Text("Organize Pages").font(.headline)
-        Text("\(fileInfo.fileName) · \(counted(cells.count, "page"))")
+        Text(L10n.tr("Organize Pages", locale: locale)).font(.headline)
+        let pageText = cells.count == 1
+          ? L10n.tr("1 page", locale: locale)
+          : L10n.text("%d pages", locale: locale, cells.count)
+        Text("\(fileInfo.fileName) · \(pageText)")
           .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
       }
       Spacer()
       Button { rotate(by: -1) } label: { Image(systemName: "rotate.left") }
-        .help("Rotate selected pages left").disabled(selection.isEmpty)
+        .help(L10n.tr("Rotate selected pages left", locale: locale))
+        .disabled(selection.isEmpty)
       Button { rotate(by: 1) } label: { Image(systemName: "rotate.right") }
-        .help("Rotate selected pages right").disabled(selection.isEmpty)
+        .help(L10n.tr("Rotate selected pages right", locale: locale))
+        .disabled(selection.isEmpty)
       Button(role: .destructive) { toggleDeleteSelected() } label: {
-        Label(deleteButtonTitle, systemImage: "trash")
+        Label(L10n.tr(deleteButtonTitle, locale: locale), systemImage: "trash")
       }
-      .help("Delete or restore selected pages")
+      .help(L10n.tr("Delete or restore selected pages", locale: locale))
       .disabled(selection.isEmpty)
       .keyboardShortcut(.delete, modifiers: [])
-      Button("Select All") { selectAll() }
+      Button(L10n.tr("Select All", locale: locale)) { selectAll() }
         .keyboardShortcut("a", modifiers: .command)
     }
     .padding(.horizontal, 16)
@@ -117,8 +123,8 @@ struct PageGridView: View {
     HStack(spacing: 12) {
       Text(summaryText).font(.callout).foregroundStyle(keptCount == 0 ? .red : .secondary)
       Spacer()
-      Button("Cancel", action: onCancel).keyboardShortcut(.cancelAction)
-      Button("Apply", action: apply)
+      Button(L10n.tr("Cancel", locale: locale), action: onCancel).keyboardShortcut(.cancelAction)
+      Button(L10n.tr("Apply", locale: locale), action: apply)
         .buttonStyle(.borderedProminent)
         .keyboardShortcut(.defaultAction)
         .disabled(!canApply)
@@ -136,8 +142,17 @@ struct PageGridView: View {
   /// sayı için doğru üretmek ayrı bir dilbilgisi motoru gerektirir. Onun yerine ek gerektirmeyen,
   /// her sayı için KESİN doğru olan bu biçim kullanılıyor.
   private var summaryText: String {
-    guard keptCount > 0 else { return "All pages cannot be deleted — at least 1 page must remain" }
-    return "\(counted(cells.count, "page")) · \(deletedCount) to delete · \(rotatedCount) to rotate"
+    guard keptCount > 0 else {
+      return L10n.tr(
+        "All pages cannot be deleted — at least 1 page must remain",
+        locale: locale)
+    }
+    let pageText = cells.count == 1
+      ? L10n.tr("1 page", locale: locale)
+      : L10n.text("%d pages", locale: locale, cells.count)
+    let deleteText = L10n.text("%d to delete", locale: locale, deletedCount)
+    let rotateText = L10n.text("%d to rotate", locale: locale, rotatedCount)
+    return "\(pageText) · \(deleteText) · \(rotateText)"
   }
 
   // MARK: - Kurulum
@@ -260,6 +275,7 @@ private struct PageCellView: View {
   let onTap: () -> Void
   let onRestore: () -> Void
 
+  @Environment(\.locale) private var locale
   @State private var thumbnail: CGImage?
 
   private var isQuarterTurn: Bool { cell.extraSteps % 2 != 0 }
@@ -305,7 +321,7 @@ private struct PageCellView: View {
           }
           .buttonStyle(.plain)
           .padding(5)
-          .help("Restore this page")
+          .help(L10n.tr("Restore this page", locale: locale))
         }
       }
       Text("\(cell.id)")

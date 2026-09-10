@@ -56,7 +56,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func presentRescueWindow() {
-    let hosting = NSHostingController(rootView: ContentView().environment(model))
+    // Dil ortamı BURADA DA verilmek zorunda: eksik olduğunda bu pencere seçilen dili değil
+    // sistem dilini gösteriyordu (ölçüldü 2026-09-10 — sistem Türkçe olduğu için arıza
+    // "Türkçe çalışıyor" gibi görünüp gizlenmişti).
+    let hosting = NSHostingController(
+      rootView: ContentView()
+        .environment(model)
+        .environment(\.locale, LanguageSetting.shared.language.locale))
     let window = NSWindow(contentViewController: hosting)
     window.title = "PDF Tools"
     window.setContentSize(NSSize(width: 640, height: 460))
@@ -73,11 +79,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct PDFToolsApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
   @StateObject private var updaterController = UpdaterController()
+  @StateObject private var languageSetting = LanguageSetting.shared
+
+  init() {
+    // Arayüzün çeviri tablosu AYRI bir paketde: SwiftPM her hedefin kaynaklarını kendi
+    // `Bundle.module`una koyuyor ve çekirdek onu göremiyor. Kaydedilmezse arayüz metinleri
+    // İngilizce kalır (sessiz arıza) — `L10n.register` tabloları birleştirir.
+    L10n.register(.module)
+  }
 
   var body: some Scene {
     WindowGroup {
       ContentView()
         .environment(appDelegate.model)
+        // Dil seçimi TEK yerden dağıtılır; her görünüm `@Environment(\.locale)` okuyup
+        // metnini `L10n.tr(_:locale:)` ile çözer (bkz. AppLanguage.swift gerekçesi).
+        .environment(\.locale, languageSetting.language.locale)
         .onAppear {
           // Odak ÇALINMAZ: `NSApp.activate(ignoringOtherApps: true)` kullanılmıyor.
           // Uygulamayı açan eylem (Finder'da çift tık, `open`) zaten öne getiriyor; bu çağrı
@@ -101,6 +118,12 @@ struct PDFToolsApp: App {
       }
       // Apple standardı: uygulama menüsünde, About'un altında (bkz. HIG).
       CommandGroup(after: .appInfo) {
+        Picker("Language", selection: $languageSetting.language) {
+          ForEach(AppLanguage.allCases) { language in
+            Text(language.menuTitle).tag(language)
+          }
+        }
+        Divider()
         Button("Check for Updates…") { updaterController.checkForUpdates() }
           .disabled(!updaterController.canCheckForUpdates)
         Toggle(

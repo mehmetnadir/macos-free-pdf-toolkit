@@ -1,0 +1,89 @@
+/* Türkçe çeviriler — anahtar İngilizce kaynak metnin kendisidir. */
+"Add" = "Ekle";
+"Add Files…" = "Dosya Ekle…";
+"Add PDF (⌘O)" = "PDF ekle (⌘O)";
+"All pages cannot be deleted — at least 1 page must remain" = "Tüm sayfalar silinemez — en az 1 sayfa kalmalı";
+"Apply" = "Uygula";
+"Cancel" = "Vazgeç";
+"Choose Files…" = "Dosya Seç…";
+"Choose PDF files or folders" = "PDF dosyalarını ya da klasörleri seç";
+"Clear" = "Temizle";
+"Clear List" = "Listeyi Temizle";
+"Clear the list" = "Listeyi temizle";
+"Delete" = "Sil";
+"Delete or restore selected pages" = "Seçili sayfaları sil ya da geri al";
+"Drop PDF files here" = "PDF dosyalarını buraya sürükle";
+"Ghostscript required — brew install ghostscript" = "Ghostscript gerekli — brew install ghostscript";
+"No PDF engine found" = "PDF motoru bulunamadı";
+"No bleed" = "Kesim payı yok";
+"One file, several files, or a folder" = "Tek dosya, birden çok dosya ya da klasör";
+"Organize Pages" = "Sayfa Düzenle";
+"PDF Tools" = "PDF Araçları";
+"Page editing works on a single file — the first file will be used" = "Sayfa düzenleme tek dosyada çalışır — ilk dosya kullanılacak";
+"Password" = "Şifre";
+"Remove from List" = "Listeden Kaldır";
+"Restore this page" = "Bu sayfayı geri al";
+"Rotate selected pages left" = "Seçili sayfaları sola döndür";
+"Rotate selected pages right" = "Seçili sayfaları sağa döndür";
+"Select All" = "Tümünü Seç";
+"Show" = "Göster";
+"Show Output in Finder" = "Çıktıyı Finder'da Göster";
+"Show Outputs in Finder" = "Çıktıları Finder'da Göster";
+"Show in Finder" = "Finder'da Göster";
+"Stop" = "Durdur";
+"Undo" = "Geri Al";
+"page editing works on a single file" = "sayfa düzenleme tek dosyada çalışır";
+"qpdf engine not found" = "qpdf motoru bulunamadı";
+
+
+/* Ghostscript kurulum sayfası (Tur 10 sonrası eklendi — geçmişte Türkçesi yok). */
+"%@ is not installed" = "%@ kurulu değil";
+"Needed for %@" = "%@ için gerekli";
+"Paste this into Terminal" = "Bunu Terminal'e yapıştır";
+"Copy" = "Kopyala";
+"Copied" = "Kopyalandı";
+"No Homebrew? Download it here" = "Homebrew yok mu? Buradan indir";
+"%@ found — you can run it now." = "%@ bulundu — artık çalıştırabilirsin.";
+"Still not found. Finish the install in Terminal, then check again." = "Hâlâ bulunamadı. Kurulumu Terminal'de bitir, sonra yeniden dene.";
+"Check Again" = "Yeniden Dene";
+"Close" = "Kapat";
+
+/* Boş PDF formu, sayfa ızgarası ve durum satırları (Tur 10 sonrası eklendi). */
+"Custom…" = "Özel…";
+"Enter at least 1 page and a size larger than zero" = "En az 1 sayfa ve sıfırdan büyük bir boyut gir";
+"Landscape" = "Yatay";
+"New Blank PDF" = "Yeni Boş PDF";
+"OK" = "Tamam";
+"Orientation" = "Yön";
+"Originals were not modified" = "Özgün dosyalar değiştirilmedi";
+"Pages" = "Sayfa";
+"Portrait" = "Dikey";
+"Saved next to the original" = "Özgün dosyanın yanına kaydedildi";
+"Show Folder" = "Klasörü Göster";
+"Size" = "Boyut";
+"Where should the blank PDF go?" = "Boş PDF nereye kaydedilsin?";
+"on 1 file" = "1 dosyada";
+
+/* Biçimli metinler. DİKKAT: "%@ mm bleed on %@" Türkçe'de argüman sırası TERS döndüğü için
+   konumlu belirteç (%2$@ / %1$@) kullanılıyor — düz %@ ile mm ve dosya sayısı yer değiştirirdi. */
+"%@ mm bleed" = "%@ mm kesim payı";
+"%@ mm bleed on %@" = "%2$@ dosyada %1$@ mm kesim payı";
+"%@ needed — set up" = "%@ gerekli — kur";
+"%d done" = "%d tamam";
+"%d encrypted" = "%d şifreli";
+"%d failed" = "%d hata";
+"%d files" = "%d dosya";
+"%d files · Show" = "%d dosya · Göster";
+"%d of %d" = "%d / %d";
+"%d pages" = "%d sayfa";
+"%d to delete" = "%d silinecek";
+"%d to rotate" = "%d döndürülecek";
+"Merges %d files" = "%d dosyayı birleştirir";
+"Saved to “%@” next to the original" = "Özgün dosyanın yanındaki “%@” klasörüne kaydedildi";
+"merged → %@" = "birleştirildi → %@";
+"on %d files" = "%d dosyada";
+"1 file" = "1 dosya";
+"1 page" = "1 sayfa";
+"Could not create the PDF" = "PDF oluşturulamadı";
+"Create Blank PDF…" = "Boş PDF Oluştur…";
+"Create…" = "Oluştur…";

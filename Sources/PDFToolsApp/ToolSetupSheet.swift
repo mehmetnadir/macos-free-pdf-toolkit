@@ -15,6 +15,7 @@ struct ToolSetupSheet: View {
   let recheck: () -> Bool
   let onClose: () -> Void
 
+  @Environment(\.locale) private var locale
   @State private var checkResult: CheckResult?
   @State private var didCopy = false
 
@@ -30,19 +31,20 @@ struct ToolSetupSheet: View {
           .font(.system(size: 28, weight: .light))
           .foregroundStyle(.secondary)
         VStack(alignment: .leading, spacing: 2) {
-          Text("\(requirement.name) is not installed").font(.title3.weight(.semibold))
-          Text("Needed for \(requirement.purpose)")
+          Text(L10n.text("%@ is not installed", locale: locale, requirement.name))
+            .font(.title3.weight(.semibold))
+          Text(L10n.text("Needed for %@", locale: locale, L10n.tr(requirement.purpose, locale: locale)))
             .font(.callout).foregroundStyle(.secondary)
         }
       }
 
-      Text(requirement.whyNotBundled)
+      Text(L10n.tr(requirement.whyNotBundled, locale: locale))
         .font(.callout)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
 
       VStack(alignment: .leading, spacing: 6) {
-        Text("Paste this into Terminal").font(.callout.weight(.medium))
+        Text(L10n.tr("Paste this into Terminal", locale: locale)).font(.callout.weight(.medium))
         HStack(spacing: 8) {
           Text(requirement.installCommand)
             .font(.system(.body, design: .monospaced))
@@ -51,24 +53,28 @@ struct ToolSetupSheet: View {
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.12)))
-          Button(didCopy ? "Copied" : "Copy") {
+          Button(L10n.tr(didCopy ? "Copied" : "Copy", locale: locale)) {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(requirement.installCommand, forType: .string)
             didCopy = true
           }
         }
-        Link("No Homebrew? Download it here", destination: requirement.homepage)
+        Link(
+          L10n.tr("No Homebrew? Download it here", locale: locale),
+          destination: requirement.homepage)
           .font(.caption)
       }
 
       if let checkResult {
         switch checkResult {
         case .found:
-          Label("\(requirement.name) found — you can run it now.", systemImage: "checkmark.circle")
+          Label(
+            L10n.text("%@ found — you can run it now.", locale: locale, requirement.name),
+            systemImage: "checkmark.circle")
             .foregroundStyle(.green).font(.callout)
         case .stillMissing:
           Label(
-            "Still not found. Finish the install in Terminal, then check again.",
+            L10n.tr("Still not found. Finish the install in Terminal, then check again.", locale: locale),
             systemImage: "exclamationmark.triangle"
           )
           .foregroundStyle(.orange).font(.callout)
@@ -76,12 +82,13 @@ struct ToolSetupSheet: View {
       }
 
       HStack {
-        Button("Check Again") {
+        Button(L10n.tr("Check Again", locale: locale)) {
           checkResult = recheck() ? .found : .stillMissing
           if checkResult == .found { onClose() }
         }
         Spacer()
-        Button("Close", action: onClose).keyboardShortcut(.cancelAction)
+        Button(L10n.tr("Close", locale: locale), action: onClose)
+          .keyboardShortcut(.cancelAction)
       }
     }
     .padding(22)

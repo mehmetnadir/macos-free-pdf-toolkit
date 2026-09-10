@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
   @Environment(AppModel.self) private var model
+  @Environment(\.locale) private var locale
   @State private var isDropTargeted = false
 
   /// Arayüz dosya sayısına göre BÜYÜR (Nadir, 2026-09-09): 20 dosya bırakıp tek satırlık bir
@@ -71,6 +72,9 @@ struct ContentView: View {
       ActionBar()
     }
     .frame(minWidth: 640, minHeight: windowMinHeight)
+    // `model.locale` ARTIK ATANMIYOR: hesaplanan özellik olarak `LanguageSetting.shared`den
+    // okuyor. Buradan atamak, bu görünüm hiç kurulmadığında (kurtarma penceresi yolu) modelin
+    // sistem dilinde kalmasına yol açıyordu.
     .dropDestination(for: URL.self) { urls, _ in
       Task { await model.add(urls: urls) }
       return true
@@ -81,10 +85,11 @@ struct ContentView: View {
         onCancel: { model.isShowingBlankPDF = false })
     }
     .alert(
-      "Could not create the PDF", isPresented: .constant(model.blankPDFError != nil),
+      L10n.tr("Could not create the PDF", locale: locale),
+      isPresented: .constant(model.blankPDFError != nil),
       presenting: model.blankPDFError
     ) { _ in
-      Button("OK") { model.blankPDFError = nil }
+      Button(L10n.tr("OK", locale: locale)) { model.blankPDFError = nil }
     } message: { Text($0) }
     .sheet(item: $model.pendingToolRequirement) { requirement in
       ToolSetupSheet(
@@ -104,15 +109,19 @@ struct ContentView: View {
         )
       }
     }
-    .navigationTitle("PDF Tools")
+    .navigationTitle(L10n.tr("PDF Tools", locale: locale))
     .toolbar {
       ToolbarItemGroup(placement: .primaryAction) {
-        Button { model.pickFiles() } label: { Label("Add", systemImage: "plus") }
-          .help("Add PDF (⌘O)")
-          .disabled(model.isRunning)
-        Button { model.clear() } label: { Label("Clear", systemImage: "trash") }
-          .help("Clear the list")
-          .disabled(model.items.isEmpty || model.isRunning)
+        Button { model.pickFiles() } label: {
+          Label(L10n.tr("Add", locale: locale), systemImage: "plus")
+        }
+        .help(L10n.tr("Add PDF (⌘O)", locale: locale))
+        .disabled(model.isRunning)
+        Button { model.clear() } label: {
+          Label(L10n.tr("Clear", locale: locale), systemImage: "trash")
+        }
+        .help(L10n.tr("Clear the list", locale: locale))
+        .disabled(model.items.isEmpty || model.isRunning)
       }
     }
   }
@@ -126,20 +135,22 @@ struct DropZoneView: View {
   /// Boş PDF oluşturma: bu ekranın DOĞAL yeri, çünkü kullanıcının henüz dosyası yok.
   let onCreateBlank: () -> Void
 
+  @Environment(\.locale) private var locale
+
   var body: some View {
     VStack(spacing: 14) {
       Image(systemName: "arrow.down.doc")
         .font(.system(size: 52, weight: .light))
         .foregroundStyle(isTargeted ? Color.accentColor : .secondary)
-      Text("Drop PDF files here")
+      Text(L10n.tr("Drop PDF files here", locale: locale))
         .font(.title3.weight(.medium))
-      Text("One file, several files, or a folder")
+      Text(L10n.tr("One file, several files, or a folder", locale: locale))
         .font(.callout)
         .foregroundStyle(.secondary)
-      Button("Choose Files…", action: onPick)
+      Button(L10n.tr("Choose Files…", locale: locale), action: onPick)
         .controlSize(.large)
         .padding(.top, 6)
-      Button("Create Blank PDF…", action: onCreateBlank)
+      Button(L10n.tr("Create Blank PDF…", locale: locale), action: onCreateBlank)
         .buttonStyle(.link)
       capabilitiesList
     }
@@ -167,7 +178,7 @@ struct DropZoneView: View {
       columns: [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 8)], spacing: 8
     ) {
       ForEach(OperationRegistry.all, id: \.id) { op in
-        Label(op.title, systemImage: op.systemImage)
+        Label(L10n.tr(op.title, locale: locale), systemImage: op.systemImage)
           .font(.caption)
           .foregroundStyle(.secondary)
       }
@@ -182,21 +193,25 @@ struct DropZoneView: View {
 
 struct FileListView: View {
   @Environment(AppModel.self) private var model
+  @Environment(\.locale) private var locale
 
   var body: some View {
     List {
       ForEach(model.items) { item in
         FileRowView(item: item)
           .contextMenu {
-            Button("Show in Finder") { model.reveal(item.info.url) }
+            Button(L10n.tr("Show in Finder", locale: locale)) { model.reveal(item.info.url) }
             if case .done(let urls, _) = item.status, let first = urls.first {
-              Button(urls.count > 1 ? "Show Outputs in Finder" : "Show Output in Finder") {
+              let title = urls.count > 1 ? "Show Outputs in Finder" : "Show Output in Finder"
+              Button(L10n.tr(title, locale: locale)) {
                 model.reveal(first)
               }
             }
             Divider()
-            Button("Remove from List", role: .destructive) { model.remove(item.id) }
-              .disabled(model.isRunning)
+            Button(L10n.tr("Remove from List", locale: locale), role: .destructive) {
+              model.remove(item.id)
+            }
+            .disabled(model.isRunning)
           }
       }
       .onDelete { offsets in
@@ -211,6 +226,7 @@ struct FileListView: View {
 struct FileRowView: View {
   let item: AppModel.FileItem
   @Environment(AppModel.self) private var model
+  @Environment(\.locale) private var locale
 
   var body: some View {
     HStack(spacing: 10) {
@@ -228,7 +244,7 @@ struct FileRowView: View {
       StatusView(
         status: item.status,
         pendingSymbol: pendingSymbol,
-        pendingHelp: isTrim ? bleedLabel : item.info.lockState.label,
+        pendingHelp: isTrim ? bleedLabel : L10n.tr(item.info.lockState.label, locale: locale),
         pendingIsProblem: item.info.lockState == .unreadable
       ) { url in model.reveal(url) }
     }
@@ -239,10 +255,15 @@ struct FileRowView: View {
 
   private var detailLine: String {
     var parts = [ByteCountFormatter.string(fromByteCount: item.info.fileSize, countStyle: .file)]
-    if item.info.pageCount > 0 { parts.append(counted(item.info.pageCount, "page")) }
+    if item.info.pageCount > 0 {
+      let pageText = item.info.pageCount == 1
+        ? L10n.tr("1 page", locale: locale)
+        : L10n.text("%d pages", locale: locale, item.info.pageCount)
+      parts.append(pageText)
+    }
     // Seçili işlem neyse onun karar verdiği bilgiyi göster: kilit açmada kilit durumu,
     // kesimde kesim payı. Kullanıcı listeye bakıp işlemin ne yapacağını görebilmeli.
-    parts.append(isTrim ? bleedLabel : item.info.lockState.label)
+    parts.append(isTrim ? bleedLabel : L10n.tr(item.info.lockState.label, locale: locale))
     return parts.joined(separator: " · ")
   }
 
@@ -259,7 +280,7 @@ struct FileRowView: View {
 
   /// Kesim payı özeti: kesilmiş ölçü + kenar payı, milimetre cinsinden.
   private var bleedLabel: String {
-    guard let trim = item.info.trimBox else { return "No bleed" }
+    guard let trim = item.info.trimBox else { return L10n.tr("No bleed", locale: locale) }
     let media = item.info.mediaBox
     let inset = max(
       trim.minX - media.minX, trim.minY - media.minY,
@@ -270,8 +291,9 @@ struct FileRowView: View {
       return value.formatted(
         .number.precision(.fractionLength(decimals)).locale(Locale(identifier: "en_US")))
     }
-    return "\(mm(trim.width, decimals: 0)) × \(mm(trim.height, decimals: 0)) mm"
-      + " · \(mm(inset, decimals: 1)) mm bleed"
+    let dimensions = "\(mm(trim.width, decimals: 0)) × \(mm(trim.height, decimals: 0)) mm"
+    let bleed = L10n.text("%@ mm bleed", locale: locale, mm(inset, decimals: 1))
+    return "\(dimensions) · \(bleed)"
   }
 }
 
@@ -307,6 +329,8 @@ struct StatusView: View {
   let pendingIsProblem: Bool
   let reveal: (URL) -> Void
 
+  @Environment(\.locale) private var locale
+
   var body: some View {
     switch status {
     case .pending:
@@ -317,7 +341,8 @@ struct StatusView: View {
       HStack(spacing: 8) {
         if let fraction {
           ProgressView(value: fraction).frame(width: 90)
-          Text("\(Int(fraction * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+          Text("\(Int(fraction * 100))%").font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
         } else {
           ProgressView().controlSize(.small)
         }
@@ -326,10 +351,13 @@ struct StatusView: View {
       HStack(spacing: 6) {
         Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         if let note {
-          Text(note).font(.caption).foregroundStyle(.secondary)
+          Text(L10n.tr(note, locale: locale)).font(.caption).foregroundStyle(.secondary)
         }
         // Tek çıktı → "Show"; birden çok → "N files · Show" (Finder'da ilk dosya seçilir).
-        Button(urls.count > 1 ? "\(counted(urls.count, "file")) · Show" : "Show") {
+        let showTitle = urls.count > 1
+          ? L10n.text("%d files · Show", locale: locale, urls.count)
+          : L10n.tr("Show", locale: locale)
+        Button(showTitle) {
           if let first = urls.first { reveal(first) }
         }
         .buttonStyle(.link)
@@ -339,14 +367,15 @@ struct StatusView: View {
     case .skipped(let reason):
       HStack(spacing: 6) {
         Image(systemName: "minus.circle").foregroundStyle(.secondary)
-        Text(reason).font(.caption).foregroundStyle(.secondary)
+        Text(L10n.tr(reason, locale: locale)).font(.caption).foregroundStyle(.secondary)
       }
     case .failed(let message):
       HStack(spacing: 6) {
         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-        Text(message).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        Text(L10n.tr(message, locale: locale)).font(.caption).foregroundStyle(.secondary)
+          .lineLimit(1)
       }
-      .help(message)
+      .help(L10n.tr(message, locale: locale))
     }
   }
 
@@ -359,6 +388,7 @@ struct StatusView: View {
 /// seçimi = işlem seçimi (bkz. `AppModel.selectOperation`).
 struct ActionCardsView: View {
   @Environment(AppModel.self) private var model
+  @Environment(\.locale) private var locale
 
   private let columns = [GridItem(.adaptive(minimum: 155, maximum: 230), spacing: 8)]
 
@@ -394,15 +424,19 @@ struct ActionCardsView: View {
   {
     switch applicability {
     case .notApplicable(let reason):
-      return reason
+      return L10n.tr(reason, locale: locale)
     case .applicable(let count):
       switch operation.id {
       case MergeOperation.identifier:
-        return "Merges \(counted(count, "file"))"
+        return L10n.text("Merges %d files", locale: locale, count)
       case PageEditOperation.identifier:
-        return "Page editing works on a single file — the first file will be used"
+        return L10n.tr(
+          "Page editing works on a single file — the first file will be used",
+          locale: locale)
       default:
-        return "on \(counted(count, "file"))"
+        return count == 1
+          ? L10n.tr("on 1 file", locale: locale)
+          : L10n.text("on %d files", locale: locale, count)
       }
     }
   }
@@ -416,6 +450,8 @@ struct ActionCardView: View {
   let isDisabled: Bool
   let onSelect: () -> Void
 
+  @Environment(\.locale) private var locale
+
   var body: some View {
     Button(action: onSelect) {
       HStack(spacing: 8) {
@@ -424,7 +460,7 @@ struct ActionCardView: View {
           .frame(width: 20)
           .foregroundStyle(isSelected ? Color.accentColor : .primary)
         VStack(alignment: .leading, spacing: 1) {
-          Text(operation.title)
+          Text(L10n.tr(operation.title, locale: locale))
             .font(.callout.weight(.medium))
             .lineLimit(1)
           Text(subtitle)
@@ -459,6 +495,7 @@ struct ActionCardView: View {
 /// eylem kartlarının HEMEN altında, ince bir satır. Hiçbiri gerekmiyorsa satır hiç görünmez.
 struct OperationOptionsRow: View {
   @Environment(AppModel.self) private var model
+  @Environment(\.locale) private var locale
 
   var body: some View {
     @Bindable var model = model
@@ -466,15 +503,18 @@ struct OperationOptionsRow: View {
     if model.needsPassword || !options.isEmpty {
       HStack(spacing: 12) {
         if model.needsPassword {
-          SecureField("Password", text: $model.password)
+          SecureField(L10n.tr("Password", locale: locale), text: $model.password)
             .textFieldStyle(.roundedBorder)
             .frame(width: 150)
             .disabled(model.isRunning)
         }
         ForEach(options) { option in
-          Picker(option.label, selection: model.optionBinding(for: option)) {
+          Picker(
+            L10n.tr(option.label, locale: locale),
+            selection: model.optionBinding(for: option)
+          ) {
             ForEach(option.choices, id: \.value) { choice in
-              Text(choice.label).tag(choice.value)
+              Text(L10n.tr(choice.label, locale: locale)).tag(choice.value)
             }
           }
           .controlSize(.small)
@@ -488,7 +528,9 @@ struct OperationOptionsRow: View {
           Button {
             model.pendingToolRequirement = requirement
           } label: {
-            Label("\(requirement.name) needed — set up", systemImage: "arrow.down.circle")
+            Label(
+              L10n.text("%@ needed — set up", locale: locale, requirement.name),
+              systemImage: "arrow.down.circle")
           }
           .controlSize(.small)
           .disabled(model.isRunning)
@@ -505,6 +547,7 @@ struct OperationOptionsRow: View {
 
 struct ActionBar: View {
   @Environment(AppModel.self) private var model
+  @Environment(\.locale) private var locale
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -513,10 +556,10 @@ struct ActionBar: View {
         statusView
         Spacer()
         if model.isRunning {
-          Button("Stop") { model.cancel() }
+          Button(L10n.tr("Stop", locale: locale)) { model.cancel() }
             .keyboardShortcut(.cancelAction)
         } else {
-          Button(model.operation.actionTitle) { runOrOpenPageGrid() }
+          Button(L10n.tr(model.operation.actionTitle, locale: locale)) { runOrOpenPageGrid() }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
             .disabled(!model.canRun)
@@ -536,9 +579,10 @@ struct ActionBar: View {
     if !model.isRunning, let destination = model.lastDestination, model.summary != nil {
       HStack(spacing: 8) {
         Image(systemName: destination.usedFallback ? "exclamationmark.triangle" : "folder")
-        Text(destination.note ?? placementText(destination))
-        Text("· Originals were not modified").foregroundStyle(.tertiary)
-        Button("Show Folder") { model.reveal(destination.directory) }
+        Text(destination.note.map { L10n.tr($0, locale: locale) } ?? placementText(destination))
+        Text("· " + L10n.tr("Originals were not modified", locale: locale))
+          .foregroundStyle(.tertiary)
+        Button(L10n.tr("Show Folder", locale: locale)) { model.reveal(destination.directory) }
           .buttonStyle(.link)
       }
       .font(.caption)
@@ -548,9 +592,9 @@ struct ActionBar: View {
 
   private func placementText(_ destination: OutputDestination) -> String {
     if let folder = destination.batchFolderName {
-      return "Saved to “\(folder)” next to the original"
+      return L10n.text("Saved to “%@” next to the original", locale: locale, folder)
     }
-    return "Saved next to the original"
+    return L10n.tr("Saved next to the original", locale: locale)
   }
 
   /// Solda tek durum metni: koşarken genel ilerleme → özet (bitti/hata sayısı) → motor uyarısı
@@ -563,7 +607,7 @@ struct ActionBar: View {
         ProgressView(value: progress.fraction).frame(width: 120)
         // Tek dosyada "1 of 1" demek gürültü; sayı yalnız gerçekten toplu işte anlamlı.
         if progress.total > 1 {
-          Text("\(progress.completed) of \(progress.total)")
+          Text(L10n.text("%d of %d", locale: locale, progress.completed, progress.total))
             .font(.callout.monospacedDigit())
         }
         Text("\(Int(progress.fraction * 100))%")
