@@ -153,9 +153,21 @@ public struct WatermarkAddOperation: PDFOperation {
       throw WatermarkError.verificationFailed("watermark wasn't detected in the expected area")
     }
 
+    // YENİDEN ÇİZMENİN ORTAK SON ADIMI (bkz. `RewriteOutput` gerekçesi): bu işlem sayfayı
+    // CoreGraphics ile yeniden çiziyor; ölçüldüğünde çıktının xref'i kırılıyor (gerçek bir matbaa
+    // dosyasında 64 nesne "offset 0"), sürüm düşüyor ve XMP üstverisi siliniyor. Onarım + yapı
+    // kapısı burada; kalan hasar sonuç satırında SÖYLENİYOR, sessizce yutulmuyor.
+    let rewrite: RewriteOutput.Report
+    do {
+      rewrite = try await RewriteOutput.finish(output: partial, source: file.url)
+    } catch {
+      try? fm.removeItem(at: partial)
+      throw error
+    }
+
     try fm.moveItem(at: partial, to: output)
     progress(1)
-    return .produced(urls: [output], note: nil)
+    return .produced(urls: [output], note: rewrite.note)
   }
 
   /// Kaynağın TÜM sayfalarını (kendi MediaBox'larıyla) yeni bir PDF'e kopyalar, her sayfaya

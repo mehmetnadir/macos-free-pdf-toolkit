@@ -303,6 +303,30 @@ final class RedrawDamageTests: XCTestCase {
     XCTAssertEqual(page.getBoxRect(.mediaBox).height, 260, accuracy: 0.5)
   }
 
+  /// e) ORTAK SON ADIM (`RewriteOutput.finish`): yeniden çizen işlemlerin çıktısı sağlam
+  /// bırakılıyor ve kalan hasar RAPORLANIYOR. Kardeş süpürmesinden doğdu — sayfa numarası, QR
+  /// ekle, filigran ekle ve aranabilir yap işlemleri de sayfayı yeniden çiziyor ve gerçek matbaa
+  /// dosyalarında aynı kırık xref'i üretiyordu (ölçüldü: 64 / 64 / 5 nesne "offset 0").
+  ///
+  /// SINIR (dürüstlük notu): bu küçük fixture'ın CoreGraphics çıktısında kırık offset ÇIKMIYOR
+  /// (ölçüldü) — onarım adımının kendisi ancak gerçek dosyayla görülüyor. Test o yüzden iki
+  /// şeyi çiviliyor: (1) adım sağlam dosyayı bozmuyor, (2) hasarı sessizce yutmuyor.
+  func testRewriteFinishKeepsTheOutputSoundAndReportsTheDamage() async throws {
+    let qpdf = try XCTUnwrap(EngineLocator.find("qpdf"), "qpdf binary could not be found")
+    let dir = try makeTempDirectory()
+    let fixtureURL = dir.appendingPathComponent("fixture.pdf")
+    try Self.makeHandBuiltFixtureData().write(to: fixtureURL)
+    let outputURL = dir.appendingPathComponent("fixture_redrawn.pdf")
+    try await CoreGraphicsTrimEngine().trim(input: fixtureURL, output: outputURL) { _ in }
+
+    let report = try await RewriteOutput.finish(output: outputURL, source: fixtureURL)
+    let structure = try await PDFStructureCheck.inspect(outputURL, qpdf: qpdf)
+    XCTAssertTrue(structure.isSound, "ortak son adımdan sonra çıktı bozuk: \(structure.summary)")
+    let note = try XCTUnwrap(report.note, "yeniden çizme hasarı bildirilmedi: \(report.changes)")
+    XCTAssertTrue(note.contains("/ICCBased"), note)
+    XCTAssertTrue(note.hasPrefix("redrawing changed the file:"), note)
+  }
+
   /// c) Yeniden çizme envanteri bozar: CoreGraphicsTrimEngine ile kesince
   /// PDFContentInventory.differences(from:) BOŞ OLMAMALI.
   func testRedrawingChangesTheInventory() async throws {

@@ -541,10 +541,26 @@ numaralandırılınca **`kitap_numbered.pdf`** üretilir,
 tüm geçmişi değil — dosya içeriği elbette hepsini taşır. Hiçbir şeyin üstüne
 yazılmaz: çakışma `kitap_numbered 2.pdf`, sonra `3` diye devam eder.
 
+**Sayfayı yeniden çizmenin bedeli var ve söyleniyor.** Beş iş sayfayı
+düzenlemek yerine yeniden çiziyor: Sayfa Numarası Ekle, QR Ekle, Filigran Ekle,
+Aranabilir PDF Yap ve Kesim Payını At'ın *Silinsin* kipi. Baskıya hazır bir
+PDF'i yeniden çizmek onu ölçülebilir biçimde bozuyor — gerçek bir 130 sayfalık
+yayınevi dosyasında sayfa numarası eklemek **0. bayta işaret eden 64 çapraz
+başvuru girdisi** bıraktı (Preview'ın açtığı, katı bir okuyucunun reddettiği bir
+dosya), PDF sürümünü 1.4'ten 1.3'e düşürdü, **7 XMP üstveri akışının tamamını**
+sildi ve **86 `/DeviceGray` görüntünün 57'sini `/ICCBased` olarak** yeniden
+etiketledi. Bu yüzden yeniden çizen her iş artık aynı şekilde bitiyor: çıktı,
+çapraz başvuru tablosu sağlam olsun diye pakette gelen qpdf'ten geçiriliyor,
+yeniden denetleniyor ve hâlâ bozuksa atılıyor; sonuç satırı da yeniden çizmenin
+neyi değiştirdiğini söylüyor. Kesim Payını At varsayılan kipte artık hiç yeniden
+çizmiyor — sayılar [Kesim Payını At](#trim-bleed--kesim-payını-at) bölümünde —
+aynısını damgalayan işler için yapmak [Yol Haritası](#yol-haritası)nda.
+
 **İlerleme.** Her dosya kendi ilerlemesini gösterir; işlem sayfa sayfa
-çalışıyorsa çubuk da sayfa sayfa ilerler — iki kesme motoru da yalnız 0 ve 1
-değil, sayfa başına gerçek ilerleme bildirir. Toplu koşu altta genel bir çubuk
-ekler: çubuk, "3 of 20", yüzde.
+çalışıyorsa çubuk da sayfa sayfa ilerler — yeniden çizen motorlar yalnız 0 ve 1
+değil sayfa başına gerçek ilerleme bildirir; varsayılan kutu kesimi ise tek bir
+qpdf geçişinde bitiyor (18 MB, 17 sayfalık dosyada 0,5 sn) ve adımlarını
+bildiriyor. Toplu koşu altta genel bir çubuk ekler: çubuk, "3 of 20", yüzde.
 
 **Çıktıyı bulmak.** Koşu bitince Finder **yalnızca uygulama hâlâ öndeyse**
 açılır. Başka bir işe geçtiysen Dock ikonu bir kez zıplar ve sonuç satırındaki
@@ -676,6 +692,11 @@ engeller.
   Watermark, Remove Watermark (deneysel), Add Page Numbers
 - **Sırada** — notarization; ilk açılışta ne sağ tık → Aç ne de Gizlilik ve
   Güvenlik dolambacı gerekmesin
+- **Sırada** — sayfayı hâlâ yeniden çizen dört iş için kayıpsız damgalama
+  (Sayfa Numarası Ekle, QR Ekle, Filigran Ekle, Aranabilir PDF Yap): sayfayı
+  yeniden çizmek yerine var olan içerik akışına damgalamak — Kesim Payını At'ın
+  artık yalnız sayfa kutularını düzenlemesi gibi. Çıktıları şimdiden onarılıyor
+  ve hasar bildiriliyor, ama gerçek çözüm hiç yeniden çizmemek
 - **Sonra** — düzen ve formül farkında belge OCR'ı (OmniDocBench ile ölçülecek),
   formüllü ve karmaşık düzenli ders kitapları için
 

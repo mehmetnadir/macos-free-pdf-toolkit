@@ -540,9 +540,24 @@ deliberate trade-off is that the name describes the last operation, not the
 whole history — the file content of course carries all of them. Nothing is ever
 overwritten: a collision becomes `book_numbered 2.pdf`, then `3`, and so on.
 
+**Redrawing a page has a price, and it is stated.** Five things redraw the page
+instead of editing it: Add Page Numbers, Add QR, Add Watermark, Make Searchable,
+and Trim Bleed's *Delete it* mode. Redrawing a print-ready PDF measurably
+damages it — on a real 130-page publisher file, adding page numbers left **64
+cross-reference entries pointing at byte 0** (a file that Preview opens and a
+stricter reader rejects), lowered the PDF version from 1.4 to 1.3, dropped all
+**7 XMP metadata streams** and re-tagged **57 of 86 `/DeviceGray` images as
+`/ICCBased`**. So every redrawing operation now ends the same way: the output is
+passed through the bundled qpdf so the cross-reference table is sound, the
+result is re-checked and thrown away if it is still broken, and the result line
+names what redrawing changed. Trim Bleed no longer redraws at all by default —
+[Trim Bleed](#trim-bleed) has the numbers — and doing the same for the stamping
+operations is on the [Roadmap](#roadmap).
+
 **Progress.** Each file shows its own progress, and where an operation works
-page by page the bar moves page by page — both trim engines report real per-page
-progress rather than just 0 and 1. A batch run adds an overall bar at the
+page by page the bar moves page by page — the redrawing engines report real
+per-page progress rather than just 0 and 1, while the default box trim finishes
+in a single qpdf pass (0.5 s on an 18 MB, 17-page file) and reports its steps. A batch run adds an overall bar at the
 bottom: bar, "3 of 20", percentage.
 
 **Finding the output.** When the run finishes, Finder is revealed **only if the
@@ -672,6 +687,11 @@ regress when a new operation is added.
   Watermark, Remove Watermark (experimental), Add Page Numbers
 - **Next** — notarization, so the first launch needs neither right-click → Open
   nor the Privacy & Security detour
+- **Next** — lossless stamping for the four operations that still redraw the
+  page (Add Page Numbers, Add QR, Add Watermark, Make Searchable): stamp into
+  the existing content stream instead of re-drawing it, the way Trim Bleed now
+  edits only the page boxes. Their output is already repaired and the damage is
+  already reported, but not redrawing at all is the real fix
 - **Later** — layout- and formula-aware document OCR, benchmarked against
   OmniDocBench, for textbooks with equations and complex page structure
 

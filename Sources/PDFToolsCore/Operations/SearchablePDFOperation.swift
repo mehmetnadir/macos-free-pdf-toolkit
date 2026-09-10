@@ -98,6 +98,18 @@ public struct SearchablePDFOperation: PDFOperation {
       throw SearchablePDFError.verificationFailed
     }
 
+    // YENİDEN ÇİZMENİN ORTAK SON ADIMI (bkz. `RewriteOutput` gerekçesi): bu işlem sayfayı
+    // CoreGraphics ile yeniden çiziyor; ölçüldüğünde çıktının xref'i kırılıyor (gerçek bir matbaa
+    // dosyasında 64 nesne "offset 0"), sürüm düşüyor ve XMP üstverisi siliniyor. Onarım + yapı
+    // kapısı burada; kalan hasar sonuç satırında SÖYLENİYOR, sessizce yutulmuyor.
+    let rewrite: RewriteOutput.Report
+    do {
+      rewrite = try await RewriteOutput.finish(output: partial, source: file.url)
+    } catch {
+      try? fm.removeItem(at: partial)
+      throw error
+    }
+
     try fm.moveItem(at: partial, to: output)
     progress(1)
 
@@ -116,7 +128,9 @@ public struct SearchablePDFOperation: PDFOperation {
         note = OCROperation.turkishSupportWarning
       }
     }
-    return .produced(urls: [output], note: note)
+    // Yeniden çizme hasarı (varsa) OCR uyarısıyla birlikte bildirilir — biri diğerini bastırmaz.
+    let notes = [note, rewrite.note].compactMap { $0 }
+    return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
   }
 
   /// Kaynağın TÜM sayfalarını (kendi MediaBox'larıyla) yeni bir PDF'e kopyalar, her sayfada Vision
