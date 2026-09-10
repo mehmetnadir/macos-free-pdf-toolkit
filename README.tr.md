@@ -6,71 +6,607 @@
 
 Ücretsiz, yerel, gerçek bir macOS PDF araç kutusu — yükleme yok, abonelik yok.
 
-![PDF Tools](docs/screenshot.png)
+![Beş dosya yüklü PDF Tools: üstte dosya listesi, altta eylem kartları ızgarası](docs/screenshot.png)
 
-## Özellikler
+## Bu proje neden var
 
-- **Kilit Aç** — şifreli PDF'lerin sahip/kullanıcı parolasını ve kısıtlamalarını, tamamen cihaz üzerinde kaldırır.
-- **Kesim Payını At** — matbaa kesim/taşma payını (TrimBox) kalıcı olarak siler, tamamen cihaz üzerinde. Ayrıca kurulu Ghostscript gerektirir (`brew install ghostscript`) — pakete neden gömülmediği için [Motor Karşılaştırması](#motor-karşılaştırması) bölümüne bak.
-- **Birleştir** — listedeki tüm dosyaları, sürüklediğin sırayla, tek PDF'te birleştirir.
-- **Parçala** — bir PDF'i parçalara böler: her sayfa ayrı dosya, sabit boyutlu parçalar (2/5/10/20/50 sayfa) ya da ortadan ikiye bölme.
-- **PDF → görüntü** — her sayfayı PNG, JPEG ya da HEIC olarak, 72–600 dpi arası, tamamen cihaz üzerinde dışa aktarır (yerleşik CoreGraphics/ImageIO, alt süreç yok). HEIC yalnızca sistemin gerçekten yazabildiği durumlarda sunulur — varsayılmaz, çalışma anında kontrol edilir.
-- **Sayfa sırala/döndür/sil** — bir sayfa ızgarasında sayfaları sürükleyip yeniden sıralayabilir, tıklayarak döndürebilir ya da silebilirsin (geri alınabilir); hepsi tek bir qpdf geçişinde uygulanır ve onayladığın plana göre (sıra, döndürme, sayfa sayısı) sayfa sayfa doğrulanır. Küçük resimler kalıcı bir disk önbelleğinden gelir — ilk 12 küçük resim soğukken ~2,75 sn sürer, aynı kitabı sonra tekrar açmak ~0,008 sn sürer.
+İnsanın ihtiyaç duyduğu PDF işlemlerinin çoğu tek seferlik ve sıkıcı: bir
+dosyanın kilidini aç, matbaa kesim payını at, bir klasörü birleştir, taranmış
+bir kitabı aranabilir yap. Yaygın cevap ya abonelikli bir web yükleyicisi ya da
+kurup sonra boğuştuğunuz bir paket program. İkisi de "aslında hiç yüklemek
+istemediğim dosya" için iyi bir takas değil.
 
-- **Sıkıştır** — üç kademe, çünkü dürüst cevap kademeye göre kat kat değişiyor. Paketli qpdf ile kayıpsız (görsel yoğun bir kitapta yaklaşık %9), Ghostscript kuruluysa daha güçlü (yaklaşık %39), ya da her sayfayı görselleştir (yaklaşık %91, metin katmanı gider — uygulama bunu sonuçta söyler).
-- **Şifrele** — qpdf ile 256-bit AES, kullanıcı ve sahip parolası, isteğe bağlı yazdırma/kopyalama kısıtı. 40 ve 128 bit güvensiz sayıldığı için hiç sunulmuyor.
-- **QR Ekle** — her sayfaya ya da yalnız ilk sayfaya, istenen köşeye QR çizer; sayfayı rasterleştirmez. Çıktı kabul edilmeden önce geri taranır, yani okunmayan QR sessiz başarı değil, hatadır.
-- **QR Ayıkla** — kitaptaki bütün QR'ları `sayfa`/`içerik` satırları olarak listeler. Varsayılan 200 dpi: gerçek bir ders kitabında ölçüldü, 100 dpi'da hiçbir şey bulunamıyor ve bu "bu kitapta QR yok" ile ayırt edilemiyor. Rapor her zaman kaç sayfa tarandığını yazar.
-- **Hızlı Görünüm İçin Hazırla** — `qpdf --linearize`, büyük kitap ağ üzerinden sayfa sayfa açılsın diye.
-- **Onar** — `qpdf --check` ile teşhis, gerçekten sorun varsa yeniden yaz; temiz dosya gereksiz yere yeniden yazılmaz, temiz olduğu söylenir.
-- **Görselleri Çıkar** — kitaptaki gömülü görselleri dışarı alır.
-- **Metni Çıkar** — metin katmanını `.txt` olarak verir. Taranmış kitapta boş dosya üretmek yerine OCR gerektiğini söyler.
+Onun yerine küçük bir Mac uygulaması:
 
-- **OCR** — taranmış kitaptan metni yerleşik Vision çerçevesiyle okur: model indirme yok, API anahtarı yok, sayfa başına yaklaşık bir saniye. Türkçe destekleniyor ve sonuç bunu saklamıyor: noktalı büyük İ bazen I okunuyor (gerçek bir ders kitabı sayfasında ölçüldü), bu yüzden notta kritik metni gözden geçirme uyarısı çıkıyor.
-- **Aranabilir Yap** — taranmış sayfanın üstüne görünmez metin katmanı koyar. Görüntüye dokunulmaz (piksel karşılaştırmasıyla doğrulandı), metin seçilebilir ve aranabilir olur; dosya kabul edilmeden önce geri okunarak sınanır.
-- **Filigran Ekle** ve **Sayfa Numarası Ekle** — pdfcpu yerine CoreText ile çizilir, çünkü ölçümde pdfcpu başlık ve alt bilgi metnini sessizce kırptı ("TEST HEADER" → "TEST HEA") ve sayfa numarası makrosu sayılmayan bir kapak sayfasını ifade edemiyor.
-- **Yer İmleri** — içindekiler ağacını JSON olarak dışa aktar, düzenle, geri yükle.
-- **Filigran Kaldır** (deneysel) — neredeyse her sayfada tekrarlayan nesneyi bulup boşaltır. Gerçek 144 sayfalık bir kitapta damgayı 143 sayfada buldu ve 1,7 saniyede kaldırdı; metin 143 kez geçmekten hiç geçmemeye indi.
+- **Yerel.** Dosyalar makineden çıkmaz. Hesap yok, işlem sırasında ağ çağrısı
+  yok, telemetri yok.
+- **Kurulum töreni yok.** İhtiyaç duyduğu motorlar (qpdf, pdfcpu) universal
+  statik ikili olarak derlenir ve uygulama paketinin içinde taşınır. Geriye tek
+  bir isteğe bağlı dış araç kalıyor — bkz.
+  [Motorlar ve lisanslar](#motorlar-ve-lisanslar).
+- **Her işlem kendi çıktısını doğrular.** Motorun "bitti" demesi kanıt değildir.
+  Kilit Aç dosyayı yeniden açar ve hâlâ şifreliyse reddeder; Birleştir sayfa
+  sayısını girdilerin toplamıyla karşılaştırır; QR Ekle çıktıyı geri tarar ve
+  okunmuyorsa hata verir; Kesim Payı, bildirilen sayfa kutusunun dışına taşarak
+  render eder ve kalıntı mürekkep arar. Doğrulama başarısızsa çıktı teslim
+  edilmez, silinir.
+- **Sonuçlar dürüst.** Bir işlemin bir bedeli varsa — kaybolan metin katmanı,
+  kaybolan bağlantılar, kenarda kalan silik bir iz — sonuç satırı bunu sessizce
+  başarı saymak yerine söyler.
 
-Proje erken aşamada ve henüz yapılmamış olanı saklamıyor — sırada ne olduğu için [Yol Haritası](#yol-haritası)'na bak.
+Proje erken aşamada. Henüz yapılmamış olan gizlenmiyor,
+[Yol Haritası](#yol-haritası)'nda yazıyor.
 
-## Kurulum
+## Başlarken
 
-[Releases](../../releases)'tan son DMG'yi indir, aç, **PDF Tools.app**'i Uygulamalar'a sürükle. Uygulama henüz notarize edilmedi; ilk açılışta sağ tık → Aç. Kendin derlemek istersen: [Kaynaktan Derleme](#kaynaktan-derleme).
+### Kurulum
 
-## Kullanım
+[Releases](../../releases) sayfasından son DMG'yi indir, aç, **PDF Tools.app**'i
+Uygulamalar'a sürükle.
 
-### GUI
-`PDF Tools.app`'i aç, PDF dosyalarını (veya bir klasörü) pencereye sürükle-bırak. Uygulama dosyaları analiz eder ve her işlem için bir eylem kartı gösterir — gerçekten uygulanabilenler etkindir ve biri otomatik öne çıkar (ör. kilitli bir dosya Kilit Aç'ı, iki temiz dosya Birleştir'i önerir); geri kalanı gerekçesiyle soluk kalır (ör. hiçbir dosya şifreli değilse Kilit Aç "zaten şifresiz" diye soluktur). Farklı bir işlem istersen bir karta dokun, gerekiyorsa şifreyi gir, çalıştır. Sonuç listesi dosya başına tamam/atlandı/hata gösterir; oradan çıktıyı Finder'da açabilirsin.
+Uygulama **henüz notarize edilmedi**, bu yüzden macOS ilk çift tıklamayı
+reddeder. Nasıl geçileceği sürüme bağlı. macOS 14'te bir kez sağ tık → **Aç** →
+**Aç** yeter. macOS 15 ve sonrasında bu kısayol kaldırıldı — **Sistem Ayarları ▸
+Gizlilik ve Güvenlik**'i aç, PDF Tools'u adıyla anan mesaja kadar in ve **Yine
+de Aç**'a bas. İki durumda da sonrasında normal açılır. Bu gerçek bir zahmet,
+formalite değil; notarization gelince ortadan kalkacak.
 
-### CLI
+### İlk açılış
+
+**PDF Tools.app**'i aç. Hiçbir şey yüklü değilken bırakma alanı, bir
+**Choose Files…** düğmesi, bir **Create Blank PDF…** düğmesi ve uygulamanın
+neler yapabildiğini gösteren solgun bir liste görürsün:
+
+![Boş ekran: bırakma alanı, Choose Files, Create Blank PDF ve solgun yetenek listesi](docs/empty-state.png)
+
+PDF dosyalarını (ya da bütün bir klasörü) pencereye sürükle. Uygulama her
+dosyayı inceler ve her işlem için bir eylem kartı gösterir. Gerçekten
+uygulanabilen kartlar etkindir ve biri otomatik öne çıkar — kilitli bir dosya
+**Unlock**'u, iki temiz dosya **Merge**'i önerir. Geri kalanı **gerekçesiyle**
+soluk kalır: hiçbir dosya şifreli değilse Unlock "already unlocked", kesim payı
+yoksa Trim Bleed "No bleed margin found" yazar. Farklı bir işlem istersen bir
+karta dokun, gerekeni gir (parola, QR içeriği, filigran metni) ve çalıştır.
+
+Dosya listesi sabit bir çerçeve içinde kaydırmak yerine — sekiz satıra kadar —
+her dosyayı bir arada gösterecek şekilde boyutlanır; pencerenin asgari
+yüksekliği de listeyle birlikte büyür (satır başına 46 pt), böylece satırlar
+görünmez olacak kadar sıkıştırılamaz. Temiz bir tercih alanıyla açıldığında
+pencere bir ile beş dosyada 640×716, sekiz ve üzerinde 640×854 açılır; sekiz
+satırdan sonra listenin kendisi kaydırılır. Arayüzün tamamı İngilizce.
+
+Klavye: **⌘N** yeni boş PDF, **⌘O** dosya ekle, **⇧⌘⌫** listeyi temizle.
+
+### Kaynaktan derleme
+
+Gereksinimler: macOS 14+, Xcode 26 / Swift 6.3. Motor derlemesi için ek olarak
+`cmake`, `go`, `gh` gerekir.
+
 ```bash
-swift run pdftools engines
-swift run pdftools unlock [--password ŞİFRE] [--out KLASÖR] dosya.pdf...
-swift run pdftools trim [--out KLASÖR] dosya.pdf...
-swift run pdftools merge [--out KLASÖR] dosya.pdf...
-swift run pdftools split [--mode each|n:10|half] [--out KLASÖR] dosya.pdf...
-swift run pdftools image [--format png|jpeg|heic] [--dpi 150] [--out KLASÖR] dosya.pdf...
-swift run pdftools pageedit [--order 3,1,2] [--rotate 1:90,4:180] [--out KLASÖR] dosya.pdf...
-swift run pdftools compress [--level light|strong|raster] [--dpi 150] [--quality 0.7] [--out KLASÖR] dosya.pdf...
-swift run pdftools encrypt [--password PAROLA] [--owner-password PAROLA] [--permissions all|noprint|nocopy|readonly] [--out KLASÖR] dosya.pdf...
-swift run pdftools qradd --content METİN [--position br|bl|tr|tl] [--size small|medium|large] [--pages all|first] [--out KLASÖR] dosya.pdf...
-swift run pdftools qrextract [--dpi 200] [--out KLASÖR] dosya.pdf...
-swift run pdftools linearize [--out KLASÖR] dosya.pdf...
-swift run pdftools repair [--out KLASÖR] dosya.pdf...
-swift run pdftools extractimages [--min-size 10000] [--out KLASÖR] dosya.pdf...
-swift run pdftools extracttext [--layout plain|pages] [--out KLASÖR] dosya.pdf...
-swift run pdftools ocr [--language tr|en|auto] [--dpi 200] [--level accurate|fast] [--out KLASÖR] dosya.pdf...
-swift run pdftools searchable [--language tr|en|auto] [--dpi 200] [--out KLASÖR] dosya.pdf...
-swift run pdftools watermarkadd --text METİN [--position center|header|footer] [--out KLASÖR] dosya.pdf...
-swift run pdftools watermarkremove [--out KLASÖR] dosya.pdf...
-swift run pdftools pagenumber [--position footer-center|...] [--start-at 1] [--format plain|ofN] [--out KLASÖR] dosya.pdf...
-swift run pdftools bookmarks [--mode export|import] [--file yerimleri.json] [--out KLASÖR] dosya.pdf...
+./packaging/build-engines.sh   # qpdf + pdfcpu'yu vendor/bin/'e derler (internet gerekir, tekrarlanabilir)
+swift build                    # universal derleme: swift build --arch arm64 --arch x86_64
+swift test                     # 160 test, Tests/PDFToolsCoreTests/
+./packaging/build.sh           # build/PDF Tools.app üretir (Developer ID imzası için SIGN_IDENTITY)
 ```
 
-## Motor Karşılaştırması
+Harici SwiftPM bağımlılığı yok. Projedeki tek üçüncü taraf kod, paketle taşınan
+iki motor ikilisidir.
 
-Ölçüm 2026-09-07, Apple Silicon, 593 MB / 144 sayfa, AES-128 sahip-şifreli bir PDF'in kilidini açarken:
+## İşlemler
+
+Aşağıdaki her işlem hem uygulamada bir eylem kartı hem de bir `pdftools` alt
+komutu olarak var. Arayüz tamamen İngilizce olduğu için seçenek adları ve
+değerleri uygulamada göründüğü gibi verildi; varsayılanlar işaretli.
+
+### Güvenlik ve erişim
+
+#### Unlock — Kilit Aç
+
+Kullanıcı/sahip parolasını ve kopyalama/yazdırma kısıtlarını tamamen cihaz
+üzerinde kaldırır. Birincil motor qpdf, yedek motor pdfcpu. Çıktı yazıldıktan
+sonra yeniden açılır ve hâlâ şifreliyse reddedilir — şifreli dosya üreten
+"başarılı" bir koşu, başarısızlık sayılır.
+
+Seçenek: dosyanın açılması için parola gerekiyorsa parola.
+
+```bash
+pdftools unlock [--password PAROLA] [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+#### Encrypt — Şifrele
+
+Dosyayı qpdf ile 256-bit AES kullanarak parolayla korur. Açmak için bir
+kullanıcı parolası ve izinleri değiştirmek için isteğe bağlı ayrı bir sahip
+parolası desteklenir. 40-bit ve 128-bit şifreleme güvensiz sayıldığı için
+bilinçli olarak hiç sunulmuyor.
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Permissions | Everything allowed · Printing disabled · Copying disabled · Printing + copying disabled | Everything allowed |
+
+```bash
+pdftools encrypt [--password PAROLA] [--owner-password PAROLA] \
+                 [--permissions all|noprint|nocopy|readonly] [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+### Baskı hazırlığı
+
+#### Trim Bleed — Kesim Payını At
+
+Matbaa kesim/taşma payını — TrimBox'ı ve dışında kalan her şeyi — kalıcı olarak
+atar, böylece dosya bitmiş sayfayla örtüşür. Kart yalnızca gerçekten kesim payı
+bildiren dosyalar için etkinleşir.
+
+**Bu işlem artık Ghostscript gerektirmiyor.** Varsayılan motor, macOS'un parçası
+olan CoreGraphics. Gerçek bir kitap sayfasında, 5 mm kesim payıyla ölçüldü:
+
+| Motor | Kesim kutusu dışında kalan mürekkep | Kesim kutusu içinde piksel farkı | Bağlantı / form alanı korunur mu |
+|---|---|---|---|
+| CoreGraphics (varsayılan) | %0,00 | 0,03/255 | hayır |
+| Ghostscript | %0,00 | 4,02/255 | evet |
+| pdfcpu | %11,65 | — | — (elendi) |
+
+Kesim kutusunun içinde, çalışan iki motorun daha sadık olanı CoreGraphics:
+Ghostscript geçiş sırasında görselleri yeniden kodluyor (`/prepress`), bu da
+4,02/255 fark olarak görünüyor; CoreGraphics 0,03/255 bırakıyor. Çıkarılan metin
+iki yolda da bit bit aynı.
+
+Bir bedeli var ve uygulama bunu saklamıyor. CoreGraphics sayfayı yeniden
+çizdiği için açıklamaları taşıyamıyor: gerçek bir 12 sayfalık dosyada
+**24 açıklamanın (bağlantı ve form alanı) 24'ü CoreGraphics ile kayboldu,
+24'ünün 24'ü Ghostscript ile korundu**. Bu yüzden motor **dosyaya göre**
+seçiliyor:
+
+- Dosyada açıklama yok → CoreGraphics; ölçülen her bakımdan daha iyi.
+- Dosyada açıklama var ve Ghostscript kurulu → onları korumak için Ghostscript.
+- Dosyada açıklama var ama Ghostscript yok → kesim yine yapılır, sonuç satırı
+  kaç bağlantının veya form alanının korunamadığını kurulum ipucuyla birlikte
+  söyler.
+
+Doğrulama, bildirilen sayfa kutusunun dışına taşarak render eder ve kalıntı
+mürekkebi ölçer; hâlâ kesim payı görünen çıktı kabul edilmez, silinir; kenarda
+kalan silik iz ise böyle raporlanır. Sayfalar arasında tutarsız TrimBox da
+bildirilir. İlerleme sayfa başına verilir.
+
+```bash
+pdftools trim [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+#### Blank PDF — Boş PDF
+
+İstediğin sayfa sayısında boş bir PDF üretir. Bu bir eylem kartı **değil** —
+girdi dosyası yok — bu yüzden boş ekranda (**Create Blank PDF…**) ve
+**File ▸ New Blank PDF…** menüsünde (**⌘N**) duruyor.
+
+![New Blank PDF formu: sayfa sayısı, boyut, yön ve canlı ölçü özeti](docs/blank-pdf.png)
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Pages | 1–5000 | 1 |
+| Size | A4 · A5 · A3 · Letter · Legal · Tabloid · Custom… (mm cinsinden en × boy) | A4 |
+| Orientation | Portrait · Landscape | Portrait |
+
+Form, elde edeceğin şeyin canlı ölçü özetini gösterir. Punto değerleri her kâğıt
+boyutu için tek tek gömülmek yerine tek bir yerde milimetreden türetilir
+(`mm × 72 / 25,4`).
+
+Dosya önce gizli bir geçici dosyaya yazılır, sonra yeniden açılıp sayfa sayısı
+ve ilk sayfanın MediaBox'ı denetlenir; biri tutmuyorsa arkada hiçbir şey
+bırakılmaz. CLI'da mevcut bir dosyanın üstüne asla sessizce yazılmaz ve `--out`
+hem bir `.pdf` yolu hem bir klasör kabul eder (hiç vermezsen çalışma dizinine
+`Blank.pdf` düşer).
+
+Üretilen PDF uygulamanın dosya listesine eklenir, böylece hemen üstünde başka
+bir işlem çalıştırabilirsin — sayfalarını numaralandır, filigran ekle, başka bir
+dosyaya birleştir.
+
+```bash
+pdftools blank [--pages 1] [--size a4|a5|a3|letter|legal|tabloid] \
+               [--width MM --height MM] [--landscape] [--out DOSYA.pdf|KLASÖR]
+```
+
+### Sayfalar ve yapı
+
+#### Organize Pages — Sayfaları Düzenle
+
+Sayfaları tek geçişte yeniden sırala, döndür, sil. Karta dokununca bir sayfa
+ızgarası açılır: sürükleyip yeniden sırala, tıklayıp döndür ya da sil, fikrin
+değişirse geri al. Onayladığın plan tek bir qpdf çağrısına dönüşür ve sonuç tam
+o plana göre sayfa sayfa doğrulanır — sıra, döndürme, sayfa sayısı.
+
+![Organize Pages formu: kitabın sayfalarının küçük resim ızgarası, döndürme, silme ve Select All düğmeleri, bekleyen değişiklik sayısı](docs/page-grid.png)
+
+Küçük resimler kalıcı bir disk önbelleğinden gelir: ilk 12 küçük resim soğukken
+~2,75 sn, aynı kitap sonra tekrar açıldığında ~0,008 sn sürer.
+
+```bash
+pdftools pageedit [--order 3,1,2] [--rotate 1:90,4:180] [--out KLASÖR] <dosya.pdf>...
+```
+
+#### Merge — Birleştir
+
+Listedeki bütün dosyaları, sürüklediğin sırayla tek PDF'te birleştirir. Dosya
+başına değil, listenin tamamını tek seferde işleyen tek işlem budur. Çıktının
+sayfa sayısı girdilerin toplamıyla karşılaştırılır; uyuşmuyorsa çıktı silinir ve
+koşu hata bildirir.
+
+```bash
+pdftools merge [--out KLASÖR] <dosya.pdf>...
+```
+
+#### Split — Parçala
+
+Bir PDF'i parçalara böler.
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Mode | Every page separate · N-page chunks · Split in half | Every page separate |
+| Chunk Size (N-page chunks) | 2 · 5 · 10 · 20 · 50 sayfa | 10 sayfa |
+
+Doğrulama, üretilen parçalardaki sayfaları toplayıp kaynakla karşılaştırır;
+uyuşmazlık ya da sıfır sayfalı bir parça çıktıyı siler.
+
+```bash
+pdftools split [--mode each|n:10|half] [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+#### Bookmarks — Yer İmleri
+
+İçindekiler ağacını elle düzenleyebileceğin bir JSON dosyasına aktarır ve geri
+yükler.
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Mode | Export — save bookmarks to a JSON file · Import — apply bookmarks from a JSON file | Export |
+
+```bash
+pdftools bookmarks [--mode export|import] [--file yerimleri.json] [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+### Boyut ve teslim
+
+#### Compress — Sıkıştır
+
+Üç kademe, çünkü dürüst cevap kademeye göre kat kat değişiyor. Görsel yoğun bir
+kitapta ölçüldü: **Light ≈ %9**, **Strong ≈ %39**, **Rasterize ≈ %91**.
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Level | Light (lossless) · Strong (needs Ghostscript) · Rasterize (text layer is lost) | Light |
+| Resolution (Rasterize) | 72 dpi — en küçük dosya · 150 dpi — ekran için · 200 dpi — dengeli · 300 dpi — baskı için | 150 dpi |
+| Quality (Rasterize) | Low · Medium · High | Medium |
+
+Light, paketle gelen qpdf ile kayıpsızdır. Strong görselleri de yeniden kodlar
+ve uygulamada Ghostscript isteyen **tek** şeydir; kurulu değilse çıkmaz sokak
+değil, [Motorlar ve lisanslar](#motorlar-ve-lisanslar) bölümünde anlatılan
+yönlendirmeli kurulum sayfası gelir. Rasterize her sayfayı görsele çevirir —
+metin katmanı gider ve sonuç satırı bunu, sonradan keşfetmene bırakmak yerine
+söyler.
+
+Light ve Strong için doğrulama, kaynağın 1. sayfasındaki gerçek metnin çıktıda
+da bulunduğunu denetler.
+
+```bash
+pdftools compress [--level light|strong|raster] [--dpi 150] [--quality 0.7] \
+                  [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+#### Optimize for Web — Web İçin İyileştir
+
+`qpdf --linearize`: büyük bir kitap, ilk sayfa görünmeden tamamı inmek yerine ağ
+üzerinden sayfa sayfa açılsın diye.
+
+```bash
+pdftools linearize [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+#### Repair — Onar
+
+Yapısal sorunları `qpdf --check` ile teşhis eder ve **yalnızca gerçekten bir
+sorun varsa** dosyayı yeniden yazar. Temiz dosya gereksiz yere yeniden yazılmaz,
+temiz olduğu söylenir — sağlam bir PDF'i yeniden yazmak, istemediğin bir
+değişikliktir.
+
+```bash
+pdftools repair [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+### Metin ve tanıma
+
+#### Extract Text — Metni Çıkar
+
+Mevcut metin katmanını bir `.txt` dosyasına yazar.
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Layout | Plain — sayfa işareti yok · Page breaks — her sayfanın nerede başladığını işaretler | Plain |
+
+Taranmış bir kitapta metin katmanı yoktur ve bu işlem bunu söyler: sessizce boş
+dosya üretmek yerine OCR gerektiğini bildirir.
+
+```bash
+pdftools extracttext [--layout plain|pages] [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+#### OCR
+
+Taranmış sayfalardaki metni yerleşik Vision çerçevesiyle okur: model indirme
+yok, API anahtarı yok, ağ yok — sayfa başına yaklaşık bir saniye.
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Language | Turkish · English · Automatic (TR + EN) | Turkish |
+| Resolution | 150 dpi — daha hızlı · 200 dpi — önerilen · 300 dpi — en doğru | 200 dpi |
+| Quality | Accurate (slower) · Fast (less accurate) | Accurate |
+
+Türkçe destekleniyor ve kusurlu olduğu yerde sonuç bunu söylüyor: noktalı büyük
+İ bazen I okunuyor (gerçek bir ders kitabı sayfasında ölçüldü), bu yüzden notta
+kritik metni gözden geçirme uyarısı çıkıyor. Makinede Türkçe desteği hiç kurulu
+değilse uygulama, metnin Türkçe okunmuş gibi davranmak yerine İngilizce
+tanıyıcıyla okunduğunu bildirir.
+
+```bash
+pdftools ocr [--language tr|en|auto] [--dpi 200] [--level accurate|fast] \
+             [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+#### Make Searchable — Aranabilir Yap
+
+Taranmış sayfanın üstüne görünmez bir metin katmanı koyar; tarama tarama olarak
+kalır ama metin seçilebilir ve aranabilir olur.
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Language | Turkish · English · Automatic (TR + EN) | Turkish |
+| Resolution | 150 dpi — daha hızlı · 200 dpi — önerilen · 300 dpi — en doğru | 200 dpi |
+
+Dosya kabul edilmeden önce iki denetim: sayfa görüntüsü değişmemiş olmalı
+(piksel karşılaştırmasıyla doğrulanır) ve metin gerçekten çıktıdan geri
+okunabilmeli.
+
+```bash
+pdftools searchable [--language tr|en|auto] [--dpi 200] [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+### Ayıklama ve dışa aktarma
+
+#### PDF to Images — PDF'ten Görüntülere
+
+Her sayfayı görüntü olarak dışa aktarır; tamamen cihaz üzerinde, yerleşik
+CoreGraphics/ImageIO ile — alt süreç yok.
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Format | PNG — kayıpsız, daha büyük dosya · JPEG — daha küçük dosya, bir miktar kalite kaybı · HEIC — en küçük dosya, yeni görüntüleyici gerekir | PNG |
+| Resolution | 72 dpi — web önizleme · 150 dpi — ekran için · 300 dpi — baskı için · 600 dpi — yüksek çözünürlüklü baskı | 150 dpi |
+
+HEIC **yalnızca** sistemin gerçekten yazabildiği durumlarda sunulur —
+varsayılmaz, çalışma anında kontrol edilir. Doğrulama üretilen dosya sayısını
+sayfa sayısıyla karşılaştırır, böylece render edilemeyen bir sayfa başarı diye
+geçemez.
+
+```bash
+pdftools image [--format png|jpeg|heic] [--dpi 150] [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+#### Extract Embedded Images — Gömülü Görselleri Çıkar
+
+Sayfalara gömülü görselleri kendi dosyalarına çıkarır.
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Minimum Size | All · Larger than 10,000 px | Larger than 10,000 px |
+
+Varsayılan filtre bir sebeple var: kitaplar minik süs parçalarıyla dolu.
+Gerçekten her şeyi istiyorsan All'a geç.
+
+```bash
+pdftools extractimages [--min-size 10000] [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+#### Extract QR — QR Ayıkla
+
+Kitaptaki bütün QR kodlarını bir metin dosyasına `sayfa`/`içerik` satırları
+olarak yazar.
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Resolution | 150 dpi — daha hızlı · 200 dpi — önerilen · 300 dpi — en doğru | 200 dpi |
+
+200 dpi varsayılanının ölçülmüş bir gerekçesi var: gerçek bir ders kitabında 100
+dpi'da hiçbir şey bulunamıyor ve bu "bu kitapta QR yok" ile ayırt edilemiyor.
+Rapor her zaman kaç sayfa tarandığını yazar, böylece boş sonuç boş sonuç olarak
+okunabilir.
+
+```bash
+pdftools qrextract [--dpi 200] [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+### İşaretler
+
+#### Add QR — QR Ekle
+
+Sayfalara QR kodu çizer, sayfayı rasterleştirmeden — metin metin olarak kalır.
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Content | QR'ın içeriği | — (zorunlu) |
+| Position | Bottom right · Bottom left · Top right · Top left | Bottom right |
+| Size | Small · Medium · Large | Medium |
+| Pages | All pages · First page only | All pages |
+
+Çıktı kabul edilmeden önce geri taranır, yani okunmayan bir QR sessiz başarı
+değil, hatadır.
+
+```bash
+pdftools qradd --content METİN [--position br|bl|tr|tl] [--size small|medium|large] \
+               [--pages all|first] [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+#### Add Watermark — Filigran Ekle
+
+Her sayfaya CoreText ile özel metinli filigran çizer.
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Text | filigran metni | — (zorunlu) |
+| Position | Center (diagonal) · Header · Footer | Center (diagonal) |
+| Opacity | %15 — silik · %30 — belirgin · %50 — kalın | %15 |
+| Font Size | 24 pt — küçük · 36 pt — orta · 48 pt — büyük | 36 pt |
+| Color | Gray · Red · Blue | Gray |
+
+pdfcpu yerine CoreText, ölçülmüş bir gerekçeyle: denemede pdfcpu başlık ve alt
+bilgi metnini sessizce kırptı ("TEST HEADER" → "TEST HEA").
+
+```bash
+pdftools watermarkadd --text METİN [--position center|header|footer] [--opacity 0.15] \
+                      [--font-size 36] [--color gray|red|blue] [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+#### Remove Watermark — Filigran Kaldır (deneysel)
+
+Neredeyse her sayfada tekrarlayan nesneyi bulup boşaltır. Gerçek 144 sayfalık
+bir kitapta damgayı 143 sayfada buldu ve 1,7 saniyede kaldırdı; metin 143 kez
+geçmekten hiç geçmemeye indi. Deneysel diyoruz, çünkü "her yerde tekrarlayan
+şey" bir sezgisel kural, tanım değil.
+
+```bash
+pdftools watermarkremove [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+#### Add Page Numbers — Sayfa Numarası Ekle
+
+Her sayfaya CoreText ile sayfa numarası çizer.
+
+| Seçenek | Değerler | Varsayılan |
+|---|---|---|
+| Position | Bottom center · Bottom right · Bottom left · Top center · Top right | Bottom center |
+| Start | From 1 (cover included) · Cover not counted | From 1 |
+| Format | Number only (ör. "5") · Number and total (ör. "5 / 120") | Number and total |
+
+"Kapak sayılmasın" durumu, pdfcpu'nun çizim için elenmesinin ikinci sebebi:
+sayfa numarası makrosu sayılmayan bir kapak sayfasını ifade edemiyor.
+
+```bash
+pdftools pagenumber [--position footer-center|footer-right|footer-left|header-center|header-right] \
+                    [--start-at 1] [--format plain|ofN] [--out KLASÖR] <dosya.pdf|klasör>...
+```
+
+## Sonuçlar nasıl ele alınıyor
+
+Çıktının nereye gittiği, ne ad aldığı ve onu nasıl bulduğun işlemin parçası,
+sonradan akla gelen bir ayrıntı değil.
+
+**Nereye gidiyor.** Tek çıktı, ek klasör açılmadan orijinalin yanına yazılır.
+Birden çok çıktı, orijinalin yanında bir `PDF Tools — <İşlem>` klasörü alır.
+Sayım üst-düzey çıktı sayımıdır; yani zaten klasör üreten bir işlem ikinci bir
+klasöre sarılmaz: tek dosyayı parçalamak tek bir `_parts/` klasörü verir,
+sarmalayıcı açılmaz; üç dosyayı parçalamak üç tane verir, sarmalayıcı açılır.
+
+Kaynak klasör yazılabilir değilse — salt-okunur birim, karantinaya alınmış
+indirme — çıktı Masaüstü'ne düşer **ve uygulama bunu söyler**. Sessizce başka
+yere yazmak, seni dosyanı ararken bırakır. Bir koşu sonunda hiç çıktı üretilmemiş
+olursa açılan toplu klasör boş bırakılmaz, geri alınır.
+
+**Adlandırma zincirlenmiyor.** Ekler birikince adlar okunmaz hâle geliyor
+(`kitap_compressed_watermarked_numbered.pdf`), bu yüzden yeni ek eklenmeden önce
+bilinen ekler soyulur: `kitap_compressed.pdf` dosyasının sayfaları
+numaralandırılınca **`kitap_numbered.pdf`** üretilir,
+`kitap_compressed_numbered.pdf` değil. Bilinçli taviz şu: ad son işlemi anlatır,
+tüm geçmişi değil — dosya içeriği elbette hepsini taşır. Hiçbir şeyin üstüne
+yazılmaz: çakışma `kitap_numbered 2.pdf`, sonra `3` diye devam eder.
+
+**İlerleme.** Her dosya kendi ilerlemesini gösterir; işlem sayfa sayfa
+çalışıyorsa çubuk da sayfa sayfa ilerler — iki kesme motoru da yalnız 0 ve 1
+değil, sayfa başına gerçek ilerleme bildirir. Toplu koşu altta genel bir çubuk
+ekler: çubuk, "3 of 20", yüzde.
+
+**Çıktıyı bulmak.** Koşu bitince Finder **yalnızca uygulama hâlâ öndeyse**
+açılır. Başka bir işe geçtiysen Dock ikonu bir kez zıplar ve sonuç satırındaki
+"Show" düğmesi seni bekler — odağın çalınmaz ve bu boyutta bir araç için
+bildirim izni istenmez.
+
+Sonuç listesi dosya başına tamam / atlandı / hata gösterir; yanında işlemin
+eklediği notla: ne kadar küçüldü, kaç QR bulundu, metin katmanı gitti,
+bağlantılar korunamadı.
+
+## Komut satırı
+
+Aynı çekirdek bir CLI de sürüyor. Kaynak kopyasında komutların önüne `swift run`
+gelir (`swift run pdftools engines`); uygulama paketinin içindeki ikilinin adı
+`pdftools`.
+
+```
+pdftools unlock [--password PASSWORD] [--out DIR] <file.pdf|folder>...
+pdftools trim [--out DIR] <file.pdf|folder>...
+pdftools merge [--out DIR] <file.pdf>...
+pdftools split [--mode each|n:10|half] [--out DIR] <file.pdf|folder>...
+pdftools image [--format png|jpeg|heic] [--dpi 150] [--out DIR] <file.pdf|folder>...
+pdftools pageedit [--order 3,1,2] [--rotate 1:90,4:180] [--out DIR] <file.pdf>...
+pdftools compress [--level light|strong|raster] [--dpi 150] [--quality 0.7]
+                  [--out DIR] <file.pdf|folder>...
+pdftools encrypt [--password PASSWORD] [--owner-password PASSWORD]
+                 [--permissions all|noprint|nocopy|readonly] [--out DIR] <file.pdf|folder>...
+pdftools linearize [--out DIR] <file.pdf|folder>...
+pdftools repair [--out DIR] <file.pdf|folder>...
+pdftools extractimages [--min-size 10000] [--out DIR] <file.pdf|folder>...
+pdftools extracttext [--layout plain|pages] [--out DIR] <file.pdf|folder>...
+pdftools qradd --content TEXT [--position br|bl|tr|tl] [--size small|medium|large]
+               [--pages all|first] [--out DIR] <file.pdf|folder>...
+pdftools qrextract [--dpi 200] [--out DIR] <file.pdf|folder>...
+pdftools ocr [--language tr|en|auto] [--dpi 200] [--level accurate|fast]
+             [--out DIR] <file.pdf|folder>...
+pdftools searchable [--language tr|en|auto] [--dpi 200] [--out DIR] <file.pdf|folder>...
+pdftools watermarkremove [--out DIR] <file.pdf|folder>...   (experimental)
+pdftools watermarkadd --text TEXT [--position center|header|footer]
+                      [--opacity 0.15] [--font-size 36] [--color gray|red|blue]
+                      [--out DIR] <file.pdf|folder>...
+pdftools pagenumber [--position footer-center|footer-right|footer-left|header-center|header-right]
+                    [--start-at 1] [--format plain|ofN] [--out DIR] <file.pdf|folder>...
+pdftools bookmarks [--mode export|import] [--file bookmarks.json]
+                   [--out DIR] <file.pdf|folder>...
+pdftools blank [--pages 1] [--size a4|a5|a3|letter|legal|tabloid]
+               [--width MM --height MM] [--landscape] [--out FILE.pdf|DIR]
+pdftools engines
+```
+
+`<file.pdf|folder>` kabul edilen her yerde bir klasör de verebilirsin;
+içindeki bütün PDF'ler işlenir. `pdftools engines` hangi motorların bulunduğunu
+raporlar.
+
+## Motorlar ve lisanslar
+
+**Pakete gömülü.** qpdf (birincil) ve pdfcpu (yedek), `packaging/build-engines.sh`
+ile universal (arm64+x86_64) statik ikili olarak derlenir ve uygulama paketinin
+içinde taşınır — çalışma zamanı bağımlılığı yok, ağ çağrısı yok. qpdf,
+libjpeg-turbo'yu statik linkler. İkisi de Apache-2.0, yani bu projenin MIT
+lisansıyla uyumlu. Tam bileşen listesi, sürümler, kaynak adresleri ve lisans
+metinleri: [THIRD_PARTY.md](THIRD_PARTY.md).
+
+**macOS'ta yerleşik.** CoreGraphics/ImageIO (sayfa render, görüntüye aktarma,
+varsayılan kesim payı atma), CoreText (filigran ve sayfa numarası), Vision (OCR).
+Model indirme yok, API anahtarı yok.
+
+**Pakete gömülmeyen ve gömülmeyecek olan: Ghostscript.** Lisansı
+AGPL-3.0-or-later; AGPL bir ikiliyi uygulamanın içinde dağıtmak tüm dağıtımı
+AGPL kapsamına çeker. Bu yüzden uygulama yalnızca kullanıcının kendi kurduğu bir
+`gs` arar. CoreGraphics kesim motorundan sonra onu isteyen tam olarak iki şey
+kaldı: **Strong** sıkıştırma kademesi ve açıklamalı bir dosyayı keserken
+açıklamaları korumak.
+
+Ghostscript'in eksik olması çıkmaz sokak değil. Uygulama yönlendirmeli bir
+kurulum sayfası gösterir: neyin eksik olduğunu söyler, neden pakete gömülmediğini
+açıklar, kurulum komutunu kopyala düğmesiyle verir ve Homebrew'u olmayanlar için
+resmi indirme sayfasına bağlantı koyar:
+
+![Ghostscript kurulum sayfası: neyin eksik olduğu, neden gömülmediği, kopyalanabilir brew komutu ve Check Again](docs/setup-ghostscript.png)
+
+**Check Again** kontrolü yerinde yeniden yapar — kurulumdan sonra uygulamayı
+yeniden başlatmak gerekmez.
+
+### Motor karşılaştırması: kilit açma
+
+Ölçüm 2026-09-07, Apple Silicon, 593 MB / 144 sayfa, AES-128 sahip-şifreli bir
+PDF'in kilidi açılırken:
 
 | Motor | Süre | Sonuç |
 |---|---|---|
@@ -78,33 +614,40 @@ swift run pdftools bookmarks [--mode export|import] [--file yerimleri.json] [--o
 | pdfcpu | 5,9 sn | Başarılı — Producer/CreationDate'i ezer, PDF sürümünü 1.7'ye çıkarır. **Yedek motor.** |
 | pypdf | 1,6 sn | Başarılı ama Python çalışma zamanı gerektirir — elendi. |
 | Apple PDFKit (yerleşik) | 28 sn | Çıktı **hâlâ şifreli** kaldı — elendi. |
-| fadeltd/pdfunlock (Go) | — | TTY'den şifre istiyor, boş şifreyi hiç denemiyor, uygulamadan tetiklenemiyor — elendi. |
+| fadeltd/pdfunlock (Go) | — | TTY'den parola istiyor, boş parolayı hiç denemiyor, uygulamadan tetiklenemiyor — elendi. |
 
-qpdf ve pdfcpu, `packaging/build-engines.sh` ile universal (arm64+x86_64) statik ikili olarak derlenir ve uygulama paketinin içinde taşınır — kilit açma sırasında çalışma zamanı bağımlılığı ya da ağ çağrısı yoktur.
+Kesim motoru karşılaştırması [Trim Bleed](#trim-bleed--kesim-payını-at)
+bölümünde.
 
-**Kesim Payını At** Ghostscript kullanır (`gs -dUseTrimBox -sDEVICE=pdfwrite`) ve **pakete gömülmez, gömülmeyecek**: Ghostscript AGPL-3.0-or-later, bu proje ise MIT ve yukarıdaki iki motor Apache-2.0. AGPL bir ikiliyi gömmek tüm dağıtımı AGPL kapsamına çeker. Bunun yerine yalnızca kullanıcının zaten kurduğu `gs` aranır (Homebrew); bulunamazsa özellik sessizce başarısız olmak yerine kurulum ipucuyla nazikçe devre dışı kalır. Ölçülmüş bir sınır: Ghostscript'in kesimi içeriği yalnızca yeni sayfa köküne göre KAYDIRIR, eski kesim sınırını aşan geometriyi (ör. tam sayfa taşan bir görsel ya da sayfayı boydan boya kesen bir kılavuz çizgisi) kırpmaz — bu yüzden uygulama her kesim çıktısını, bildirilen sayfa kutusunun dışına taşarak render edip kalıntı mürekkep var mı diye denetler; kutu üstverisine güvenmek yerine bunu reddeder (ya da işaretler).
+## Testler
+
+`swift test` **160 test** koşar (Ghostscript kurulu olmayan bir makinede 2'si
+atlanır).
+
+Testler uygulamanın kuralına uyar: **motorun "bitti" demesi kanıt değildir.**
+Test üretilen dosyayı yeniden açar ve ölçer — sayfa sayısı, sayfa başına
+döndürme, sayfa kutusunun dışına render edilen piksel, çıktıdan geri okunan
+metin, render edilmiş sayfadan çözülen QR, çıktı hâlâ şifreli mi.
+
+Doğrulama kapıları mutasyonla kanıtlanır: kapı bilerek bozulur (bir sayfa eksik
+yazılır, kesim atlanır, dosya şifreli bırakılır), takımın kırmızıya döndüğü
+görülür, bozma geri alınır. Hiç başarısız olduğu görülmemiş bir kapının
+çalıştığı bilinmiyor demektir. Bir sözleşme testi, her işlemin çıktı ekinin
+adlandırıcı tarafından tanındığını çivileyip
+[Sonuçlar nasıl ele alınıyor](#sonuçlar-nasıl-ele-alınıyor) bölümünde anlatılan
+zincirlenmeyen ad davranışının yeni bir işlem eklendiğinde sessizce bozulmasını
+engeller.
 
 ## Yol Haritası
 
-- **Bitti** — Kilit Aç, Kesim Payını At, Birleştir, Parçala, PDF → görüntü, Sayfa sırala/döndür/sil, Sıkıştır, Şifrele, QR ekle/ayıkla, Lineerleştir, Onar, Görselleri çıkar, Metni çıkar, OCR, Aranabilir yap, Filigran ekle, Sayfa numarası ekle, Yer imleri, Filigran kaldır (deneysel)
-- **Sonra** — Düzen ve formül farkında belge OCR'ı (OmniDocBench ile ölçülecek), formüllü ve karmaşık düzenli ders kitapları için
-
-## Kaynaktan Derleme
-
-Gereksinimler: macOS 14+, Xcode 26 / Swift 6.3. Motor derlemesi için ek olarak `cmake`, `go`, `gh` gerekir.
-
-```bash
-./packaging/build-engines.sh   # qpdf + pdfcpu'yu vendor/bin/'e derler (internet gerekir, tekrarlanabilir)
-swift build                    # universal derleme: swift build --arch arm64 --arch x86_64
-swift test                     # 46 test, Tests/PDFToolsCoreTests/ (gs kurulu değilse kesim testleri atlanır)
-./packaging/build.sh           # build/PDF Tools.app üretir (Developer ID imza için SIGN_IDENTITY env)
-```
-
-Harici SwiftPM bağımlılığı yok. Projedeki tek üçüncü taraf kod, aşağıda anlatılan iki gömülü motor ikilisidir.
-
-## Üçüncü Taraf Bileşenler
-
-qpdf ve pdfcpu, uygulama paketinin içinde derlenmiş ikili olarak taşınır (qpdf, libjpeg-turbo'yu statik linkler). Tam bileşen listesi, sürümler, kaynak adresleri ve lisans metinleri: [THIRD_PARTY.md](THIRD_PARTY.md).
+- **Bitti** — Unlock, Encrypt, Trim Bleed, Blank PDF, Organize Pages, Merge,
+  Split, Bookmarks, Compress, Optimize for Web, Repair, Extract Text, OCR, Make
+  Searchable, PDF to Images, Extract Embedded Images, Extract QR, Add QR, Add
+  Watermark, Remove Watermark (deneysel), Add Page Numbers
+- **Sırada** — notarization; ilk açılışta ne sağ tık → Aç ne de Gizlilik ve
+  Güvenlik dolambacı gerekmesin
+- **Sonra** — düzen ve formül farkında belge OCR'ı (OmniDocBench ile ölçülecek),
+  formüllü ve karmaşık düzenli ders kitapları için
 
 ## Lisans
 
