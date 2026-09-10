@@ -84,7 +84,7 @@ Gereksinimler: macOS 14+, Xcode 26 / Swift 6.3. Motor derlemesi için ek olarak
 ```bash
 ./packaging/build-engines.sh   # qpdf + pdfcpu'yu vendor/bin/'e derler (internet gerekir, tekrarlanabilir)
 swift build                    # universal derleme: swift build --arch arm64 --arch x86_64
-swift test                     # 182 test, Tests/PDFToolsCoreTests/
+swift test                     # 183 test, Tests/PDFToolsCoreTests/
 ./packaging/build.sh           # build/PDF Tools.app üretir (Developer ID imzası için SIGN_IDENTITY)
 ```
 
@@ -663,7 +663,7 @@ bölümünde.
 
 ## Testler
 
-`swift test` **182 test** koşar. Beşi makinede ne olduğuna bağlı: üçü
+`swift test` **183 test** koşar. Beşi makinede ne olduğuna bağlı: üçü
 Ghostscript istiyor, biri Ghostscript'in KURULU OLMAMASINI istiyor (gs yokken
 alınan hata mesajını sınıyor), biri de Vision'ın Türkçe dil desteğini istiyor.
 Yani gs'li ve Türkçe Vision'lı bir Mac'te 1 test atlanır; ikisi de olmayan
