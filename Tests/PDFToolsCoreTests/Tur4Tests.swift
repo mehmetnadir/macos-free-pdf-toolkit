@@ -237,7 +237,7 @@ final class Tur4Tests: XCTestCase {
   /// Spec 7 (var): gs kuruluysa "strong" kademesi çalışır, metin korunur (algısal kayıplı ama
   /// vektör/metin katmanı KALIR — yalnız görüntüler yeniden örneklenir).
   func testStrongCompressionWorksWhenGhostscriptInstalled() async throws {
-    try XCTSkipUnless(EngineLocator.trimEngine() != nil, "gs kurulu değil, atlanıyor")
+    try XCTSkipUnless(EngineLocator.ghostscript() != nil, "gs kurulu değil, atlanıyor")
     let dir = try makeTempDirectory()
     let source = dir.appendingPathComponent("guclu.pdf")
     Self.makeTextFixture(pageCount: 2, to: source)
@@ -260,7 +260,7 @@ final class Tur4Tests: XCTestCase {
   /// `TrimTests`'teki aynı desen, paketleme betiği yalnızca qpdf/pdfcpu kurar, gs'e dokunmaz).
   func testStrongCompressionFailsWithClearErrorWhenGhostscriptMissing() async throws {
     try XCTSkipIf(
-      EngineLocator.trimEngine() != nil, "gs kurulu — bu test yalnız CI'da (gs yokken) anlamlı")
+      EngineLocator.ghostscript() != nil, "gs kurulu — bu test yalnız gs YOKKEN anlamlı")
     let dir = try makeTempDirectory()
     let source = dir.appendingPathComponent("guclu-yok.pdf")
     Self.makeTextFixture(pageCount: 1, to: source)

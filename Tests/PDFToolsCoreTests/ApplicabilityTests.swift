@@ -46,8 +46,9 @@ final class ApplicabilityTests: XCTestCase {
       TrimOperation().applicability(for: files), .notApplicable(reason: "No bleed margin found"))
   }
 
-  func testTrimApplicableWhenBleedPresentAndEngineInstalled() throws {
-    try XCTSkipUnless(EngineLocator.trimEngine() != nil, "gs kurulu değil, atlanıyor")
+  /// Kapı kaldırıldı: `applicability` artık motor sormuyor (kesme motoru macOS'un parçası), o
+  /// yüzden bu iddia gs'siz makinede de (CI) geçerli ve test her yerde koşmalı.
+  func testTrimApplicableWhenBleedPresent() throws {
     let bleeding = dummyFile(
       mediaBox: CGRect(x: 0, y: 0, width: 200, height: 200),
       trimBox: CGRect(x: 10, y: 10, width: 180, height: 180), name: "bleed.pdf")

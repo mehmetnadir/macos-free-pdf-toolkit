@@ -85,7 +85,7 @@ additionally needs `cmake`, `go`, `gh`.
 ```bash
 ./packaging/build-engines.sh   # builds qpdf + pdfcpu into vendor/bin/ (needs internet, repeatable)
 swift build                    # universal build: swift build --arch arm64 --arch x86_64
-swift test                     # 160 tests, Tests/PDFToolsCoreTests/
+swift test                     # 161 tests, Tests/PDFToolsCoreTests/
 ./packaging/build.sh           # produces build/PDF Tools.app (set SIGN_IDENTITY for a Developer ID signature)
 ```
 
@@ -618,8 +618,10 @@ The trim-engine comparison is in [Trim Bleed](#trim-bleed).
 
 ## Testing
 
-`swift test` runs **160 tests** (2 skip on a machine without Ghostscript
-installed).
+`swift test` runs **161 tests**. Three of them need Ghostscript and skip without
+it; one needs Ghostscript to be *absent* and skips when it is installed — so a
+machine with `gs` skips 1 and a machine without it skips 3, and no test is
+silently skipped in both configurations.
 
 The tests follow the same rule as the app: **the engine saying "done" is not
 evidence.** A test re-opens the produced file and measures it — page counts,

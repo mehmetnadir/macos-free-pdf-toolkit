@@ -56,12 +56,18 @@ final class ProgressTests: XCTestCase {
 
   // MARK: - Uçtan uca (gs kurulu ise) — gerçek stdout akışının progress'i tetiklediğini doğrular
 
-  /// `TrimTests`'teki kalıpla aynı: gs kurulu değilse (CI) atlanır, kurulu makinede gerçek
-  /// bir alt süreç çalıştırıp ilerleme geri çağrısının en az bir kez 0 ile 1 arasında,
-  /// ve son çağrının kesin 1.0 olduğunu doğrular.
-  func testTrimReportsIntermediateProgressWhenGSAvailable() async throws {
-    try XCTSkipUnless(EngineLocator.trimEngine() != nil, "gs kurulu değil, atlanıyor")
-    guard let engine = EngineLocator.trimEngine() else { return }
+  /// gs kurulu değilse (CI) atlanır; kurulu makinede GERÇEK bir alt süreç çalıştırıp ilerleme
+  /// geri çağrısının en az bir ara değer verdiğini ve son çağrının kesin 1.0 olduğunu doğrular.
+  ///
+  /// Motor BURADA AÇIKÇA `GhostscriptEngine`: eskiden `EngineLocator.trimEngine()` kullanılıyordu,
+  /// ama o artık her zaman `CoreGraphicsTrimEngine` döndürüyor — yani bu test adında gs yazmasına
+  /// rağmen gs'i hiç çalıştırmıyordu (gs'in stdout satır akışını ayrıştıran kod test edilmemiş
+  /// kalıyordu). CoreGraphics yolu ayrıca aşağıdaki testte, her makinede koşarak ölçülüyor.
+  func testGhostscriptReportsIntermediateProgress() async throws {
+    guard let gs = EngineLocator.ghostscript() else {
+      throw XCTSkip("gs kurulu değil, atlanıyor")
+    }
+    let engine = GhostscriptEngine(executable: gs)
 
     let dir = FileManager.default.temporaryDirectory
       .appendingPathComponent("pdftools-progress-tests-\(UUID().uuidString)", isDirectory: true)
@@ -81,6 +87,33 @@ final class ProgressTests: XCTestCase {
     XCTAssertEqual(values.first, 0)
     XCTAssertEqual(values.last, 1)
     // En azından bir ara değer (0 < v < 1) görülmeli — donmuş çubuk yerine gerçek ilerleme.
+    XCTAssertTrue(values.contains { $0 > 0 && $0 < 1 }, "ara ilerleme bildirimi yok: \(values)")
+    XCTAssertTrue(values.allSatisfy { $0 >= 0 && $0 <= 1 })
+  }
+
+  /// VARSAYILAN kesme motorunun (CoreGraphics) sayfa başına ilerleme bildirdiğini doğrular.
+  /// Bu yol daha önce HİÇ test edilmiyordu: tek ilerleme testi adında gs geçiyordu ama motoru
+  /// `EngineLocator.trimEngine()`'den alıyordu, o da CoreGraphics döndürüyordu — yani gs'in
+  /// ayrıştırıcısı test edilmemiş, CoreGraphics ise yanlış isim altında test edilmiş görünüyordu.
+  /// gs'e ihtiyaç duymadığı için CI'da da koşar.
+  func testCoreGraphicsReportsIntermediateProgress() async throws {
+    let engine = CoreGraphicsTrimEngine()
+
+    let dir = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pdftools-progress-cg-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+
+    let input = dir.appendingPathComponent("multipage.pdf")
+    Self.makeMultiPageFixture(pageCount: 5, to: input)
+    let output = dir.appendingPathComponent("out.pdf")
+
+    let box = ProgressBox()
+    try await engine.trim(input: input, output: output) { box.append($0) }
+
+    let values = box.values
+    XCTAssertEqual(values.first, 0)
+    XCTAssertEqual(values.last, 1)
     XCTAssertTrue(values.contains { $0 > 0 && $0 < 1 }, "ara ilerleme bildirimi yok: \(values)")
     XCTAssertTrue(values.allSatisfy { $0 >= 0 && $0 <= 1 })
   }

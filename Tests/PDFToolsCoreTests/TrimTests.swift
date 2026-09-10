@@ -139,10 +139,13 @@ final class TrimTests: XCTestCase {
     XCTAssertEqual(outcome, .skipped(reason: "No bleed margin found"))
   }
 
-  // MARK: - 3. gs varsa: gerçek kesim + doğrulama .clean
+  // MARK: - 3. Gerçek kesim + doğrulama .clean (motor her makinede mevcut)
 
-  func testTrimOperationProducesCleanOutputWhenGSAvailable() async throws {
-    try XCTSkipUnless(EngineLocator.trimEngine() != nil, "gs kurulu değil, atlanıyor")
+  /// Eskiden `XCTSkipUnless(trimEngine() != nil)` ile korunuyordu ("gs varsa"). Kesme motoru
+  /// CoreGraphics'e geçtiğinden o koşul HER ZAMAN doğru — yani kapı hiçbir şeyi korumuyordu ve
+  /// testin adı yanlış bilgi veriyordu. Motor macOS'un parçası olduğu için test artık gs'siz
+  /// makinede de (CI) koşar; kapı kaldırıldı.
+  func testTrimOperationProducesCleanOutput() async throws {
     let dir = try makeTempDirectory()
     let source = dir.appendingPathComponent("clean-source.pdf")
     let mediaBox = CGRect(x: 0, y: 0, width: 200, height: 200)
@@ -192,13 +195,20 @@ final class TrimTests: XCTestCase {
     XCTAssertGreaterThan(result.residuePercent, 10, "failed eşiğinin üstünde olmalı")
   }
 
-  // MARK: - 5. gs yoksa: engineMissing
+  // MARK: - 5. gs yoksa: kesim YİNE ÇALIŞIR (eski `engineMissing` testinin yerine)
 
-  /// Bu testin anlamlı çalışması için gs'in KURULU OLMAMASI gerekir (CI'da böyle: `ci.yml`
-  /// yalnızca qpdf/pdfcpu kurar, gs'e bilerek dokunmaz). Geliştirme makinesinde gs kuruluysa bu
-  /// hata yolu zaten tetiklenemeyeceği için test atlanır — ötekilerin tam tersi bir skip yönü.
-  func testEngineMissingWhenGSNotInstalled() async throws {
-    try XCTSkipIf(EngineLocator.trimEngine() != nil, "gs kurulu — bu test yalnız gs YOKKEN anlamlı")
+  /// Buradaki eski test (`testEngineMissingWhenGSNotInstalled`) gs yokken kesmenin
+  /// `OperationError.engineMissing` atmasını bekliyordu. Kesme CoreGraphics'e geçtiğinden bu
+  /// davranış BİLEREK kaldırıldı: gs olmadan da kesiyoruz. Test kendi kapısı (`trimEngine() != nil`
+  /// artık her zaman doğru) yüzünden hiçbir makinede koşmuyordu, yani kaldırılan davranışı
+  /// sessizce savunuyordu. Yerine konan iddia: gs'in yokluğu kesmeyi ENGELLEMEZ.
+  ///
+  /// gs'in kurulu OLMADIĞI durumu bu makinede zorlayamıyoruz (`EngineLocator.gsSearchDirectories`
+  /// Homebrew yollarını sabit tarar, üretim koduna test bayrağı koymak istemiyoruz — bkz. daha
+  /// önce kaldırılan `debugForcePageCountShortfall`). Bu yüzden test her iki durumda da anlamlı
+  /// olacak şekilde yazıldı: kesim, gs kurulu olsun ya da olmasın, .clean çıktı üretmeli.
+  /// Anotasyonlu dosyada gs'in tercih edilmesi ayrıca `AnnotationTests`'te ölçülüyor.
+  func testTrimWorksRegardlessOfGhostscript() async throws {
     let dir = try makeTempDirectory()
     let url = dir.appendingPathComponent("bleed.pdf")
     Self.makeFixture(
@@ -206,14 +216,13 @@ final class TrimTests: XCTestCase {
       trimBox: CGRect(x: 10, y: 10, width: 180, height: 180), to: url)
     let info = PDFFileInfo.inspect(url)
 
-    do {
-      _ = try await TrimOperation().run(
-        file: info, context: OperationContext(outputDirectory: dir)) { _ in }
-      XCTFail("gs yokken çalışmamalıydı")
-    } catch let error as OperationError {
-      guard case .engineMissing = error else {
-        return XCTFail("beklenmeyen hata: \(error)")
-      }
+    let outcome = try await TrimOperation().run(
+      file: info, context: OperationContext(outputDirectory: dir)) { _ in }
+    guard case .produced(let outputs, _) = outcome, let output = outputs.first else {
+      return XCTFail("gs kurulu=\(EngineLocator.ghostscript() != nil) iken çıktı yok: \(outcome)")
     }
+    XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+    let result = TrimVerification.verify(output)
+    XCTAssertEqual(result.verdict, .clean, "kalıntı %\(result.residuePercent)")
   }
 }

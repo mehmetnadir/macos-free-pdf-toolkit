@@ -84,7 +84,7 @@ Gereksinimler: macOS 14+, Xcode 26 / Swift 6.3. Motor derlemesi için ek olarak
 ```bash
 ./packaging/build-engines.sh   # qpdf + pdfcpu'yu vendor/bin/'e derler (internet gerekir, tekrarlanabilir)
 swift build                    # universal derleme: swift build --arch arm64 --arch x86_64
-swift test                     # 160 test, Tests/PDFToolsCoreTests/
+swift test                     # 161 test, Tests/PDFToolsCoreTests/
 ./packaging/build.sh           # build/PDF Tools.app üretir (Developer ID imzası için SIGN_IDENTITY)
 ```
 
@@ -621,8 +621,10 @@ bölümünde.
 
 ## Testler
 
-`swift test` **160 test** koşar (Ghostscript kurulu olmayan bir makinede 2'si
-atlanır).
+`swift test` **161 test** koşar. Üçü Ghostscript istiyor ve gs yoksa atlanır;
+biri gs'in KURULU OLMAMASINI istiyor ve gs varsa atlanır — yani gs'li makinede
+1, gs'siz makinede 3 test atlanır ve hiçbir test her iki durumda da sessizce
+atlanmış olmaz.
 
 Testler uygulamanın kuralına uyar: **motorun "bitti" demesi kanıt değildir.**
 Test üretilen dosyayı yeniden açar ve ölçer — sayfa sayısı, sayfa başına

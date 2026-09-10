@@ -43,7 +43,6 @@ final class AppModel {
   var isRunning = false
   var isInspecting = false
   let engineNames: [String]
-  let hasTrimEngine: Bool
   let hasQPDF: Bool
   /// Sayfa küçük resimleri için TEK örnek — uygulama ömrü boyunca yaşar, her sheet açılışında
   /// yeniden kurulmaz (bkz. `.claude/CLAUDE.md`): aynı belge için render sonuçlarının bellek/disk
@@ -73,7 +72,6 @@ final class AppModel {
 
   init() {
     engineNames = EngineLocator.availableEngines().map(\.name)
-    hasTrimEngine = EngineLocator.trimEngine() != nil
     hasQPDF = EngineLocator.find("qpdf") != nil
     let launchURLs = CommandLine.arguments.dropFirst()
       .filter { $0.lowercased().hasSuffix(".pdf") }
@@ -94,7 +92,6 @@ final class AppModel {
   }
 
   var hasEngine: Bool { !engineNames.isEmpty }
-  private var isTrimSelected: Bool { selectedOperationID == TrimOperation.identifier }
   /// Birleştir/Parçala yalnızca qpdf kullanır (pdfcpu yedeği yok, bkz. `.claude/CLAUDE.md`).
   private var requiresQPDFOnly: Bool {
     selectedOperationID == MergeOperation.identifier || selectedOperationID == SplitOperation.identifier
@@ -119,13 +116,11 @@ final class AppModel {
   }
 
   var hasRequiredEngine: Bool {
-    if isTrimSelected { return hasTrimEngine }
     if requiresQPDFOnly { return hasQPDF }
     if isImageExportSelected { return true }
     return hasEngine
   }
   var missingEngineMessage: String {
-    if isTrimSelected { return "Ghostscript required — brew install ghostscript" }
     if requiresQPDFOnly { return "qpdf engine not found" }
     return "No PDF engine found"
   }

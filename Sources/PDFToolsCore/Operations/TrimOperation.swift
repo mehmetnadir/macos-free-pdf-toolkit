@@ -26,9 +26,11 @@ public struct TrimOperation: PDFOperation {
     guard !files.isEmpty else { return .notApplicable(reason: "Add a PDF first") }
     let bleedCount = files.filter(\.hasBleed).count
     guard bleedCount > 0 else { return .notApplicable(reason: "No bleed margin found") }
-    guard EngineLocator.trimEngine() != nil else {
-      return .notApplicable(reason: "Ghostscript required — brew install ghostscript")
-    }
+    // Motor kontrolü YOK: varsayılan kesme motoru `CoreGraphicsTrimEngine`, macOS'ta her zaman
+    // mevcut (bkz. EngineLocator.trimEngine()). Burada eskiden bir "gs kurulu mu" kapısı vardı;
+    // gs artık yalnızca ANOTASYONLU dosyalarda tercih ediliyor ve yokluğu kesmeyi engellemiyor,
+    // sonuç notunda bildiriliyor (bkz. `run`). Kapı bu yüzden kaldırıldı — kalsaydı kullanıcıya
+    // gereksiz yere "Ghostscript required" diyen ulaşılamaz bir dal olurdu.
     return .applicable(fileCount: bleedCount)
   }
 
