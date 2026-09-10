@@ -618,10 +618,12 @@ The trim-engine comparison is in [Trim Bleed](#trim-bleed).
 
 ## Testing
 
-`swift test` runs **161 tests**. Three of them need Ghostscript and skip without
-it; one needs Ghostscript to be *absent* and skips when it is installed — so a
-machine with `gs` skips 1 and a machine without it skips 3, and no test is
-silently skipped in both configurations.
+`swift test` runs **161 tests**. Five of them depend on what the machine has:
+three need Ghostscript, one needs Ghostscript to be *absent* (it checks the
+error message you get without it), and one needs Vision's Turkish language pack.
+So a Mac with `gs` and Turkish Vision skips 1, while CI — which has neither —
+skips 4 and runs the rest. The skip directions are deliberately opposed, so no
+test can end up silently skipped everywhere.
 
 The tests follow the same rule as the app: **the engine saying "done" is not
 evidence.** A test re-opens the produced file and measures it — page counts,

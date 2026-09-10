@@ -621,10 +621,12 @@ bölümünde.
 
 ## Testler
 
-`swift test` **161 test** koşar. Üçü Ghostscript istiyor ve gs yoksa atlanır;
-biri gs'in KURULU OLMAMASINI istiyor ve gs varsa atlanır — yani gs'li makinede
-1, gs'siz makinede 3 test atlanır ve hiçbir test her iki durumda da sessizce
-atlanmış olmaz.
+`swift test` **161 test** koşar. Beşi makinede ne olduğuna bağlı: üçü
+Ghostscript istiyor, biri Ghostscript'in KURULU OLMAMASINI istiyor (gs yokken
+alınan hata mesajını sınıyor), biri de Vision'ın Türkçe dil desteğini istiyor.
+Yani gs'li ve Türkçe Vision'lı bir Mac'te 1 test atlanır; ikisi de olmayan
+CI'da 4 atlanır, gerisi koşar. Atlama yönleri bilerek zıt: hiçbir test her
+ortamda sessizce atlanmış olamaz.
 
 Testler uygulamanın kuralına uyar: **motorun "bitti" demesi kanıt değildir.**
 Test üretilen dosyayı yeniden açar ve ölçer — sayfa sayısı, sayfa başına
