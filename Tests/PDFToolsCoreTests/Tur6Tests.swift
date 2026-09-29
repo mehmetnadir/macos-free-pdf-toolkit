@@ -220,13 +220,18 @@ final class Tur6Tests: XCTestCase {
 
     let defaultOutcome = try await ExtractImagesOperation().run(
       file: info, context: OperationContext(outputDirectory: dir)) { _ in }
-    guard case .produced(let outputs, _) = defaultOutcome else {
+    guard case .produced(let outputs, let note) = defaultOutcome else {
       return XCTFail("çıktı üretilmedi: \(defaultOutcome)")
     }
     // Kanıt 1: yalnızca eşiği aşan görsel kaldı.
     XCTAssertEqual(outputs.count, 1, "varsayılan eşikte yalnız 1 görsel kalmalı: \(outputs)")
     XCTAssertTrue(
       outputs.allSatisfy { $0.deletingLastPathComponent().lastPathComponent == "gorselli_embedded" })
+    // Kanıt (2026-09-29 sessiz-hata denetimi, bulgu 3): eşik altında kalan görsel SESSİZCE
+    // yutulmuyor — en az biri elenip en az biri tutulduğunda `note` bunu bildirir.
+    XCTAssertEqual(
+      note, ExtractImagesOperation.skippedImagesNote,
+      "eşik altı görsel elendi ama kullanıcıya bildirilmedi")
 
     // Kanıt 2: her dosya GERÇEKTEN açılabilir bir görüntü ve BOŞ DEĞİL.
     for url in outputs {
@@ -234,8 +239,10 @@ final class Tur6Tests: XCTestCase {
         return XCTFail("görüntü okunamadı: \(url.lastPathComponent)")
       }
       XCTAssertGreaterThan(result.width * result.height, 0)
-      XCTAssertGreaterThan(
-        result.nonWhitePercent, 0, "\(url.lastPathComponent) boş görünüyor")
+      guard let nonWhitePercent = result.nonWhitePercent else {
+        return XCTFail("\(url.lastPathComponent): beyaz-olmayan oran ölçülemedi")
+      }
+      XCTAssertGreaterThan(nonWhitePercent, 0, "\(url.lastPathComponent) boş görünüyor")
     }
 
     // Kanıt 3: minSize "0" verilince İKİ görsel de (küçük olan dahil) kalmalı.
@@ -244,10 +251,11 @@ final class Tur6Tests: XCTestCase {
     let allContext = OperationContext(
       outputDirectory: allDir, options: [ExtractImagesOperation.minSizeOptionID: "0"])
     let allOutcome = try await ExtractImagesOperation().run(file: info, context: allContext) { _ in }
-    guard case .produced(let allOutputs, _) = allOutcome else {
+    guard case .produced(let allOutputs, let allNote) = allOutcome else {
       return XCTFail("çıktı üretilmedi: \(allOutcome)")
     }
     XCTAssertEqual(allOutputs.count, 2, "minSize=0 iken tüm görseller kalmalı: \(allOutputs)")
+    XCTAssertNil(allNote, "hiçbir görsel elenmedi, yine de not eklenmiş: \(allNote ?? "")")
   }
 
   func testExtractImagesSkipsWhenNoEmbeddedImages() async throws {

@@ -212,10 +212,13 @@ final class Tur1Tests: XCTestCase {
         ImageExportVerification.matchesExpectedSize(
           result, pagePoints: CGSize(width: 200, height: 200), dpi: 150),
         "\(url.lastPathComponent): \(result.width)×\(result.height), 150 dpi × 200pt bekleniyordu")
-      // Kanıt 3: görüntü BOŞ DEĞİL.
+      // Kanıt 3: görüntü BOŞ DEĞİL — ölçülemedi (`nil`) ile bembeyaz (`0`) AYRI durumlardır.
+      guard let nonWhitePercent = result.nonWhitePercent else {
+        return XCTFail("\(url.lastPathComponent): beyaz-olmayan oran ölçülemedi")
+      }
       XCTAssertGreaterThan(
-        result.nonWhitePercent, ImageExportVerification.minNonWhitePercentForNonEmpty,
-        "\(url.lastPathComponent) boş görünüyor (mürekkep %\(result.nonWhitePercent))")
+        nonWhitePercent, ImageExportVerification.minNonWhitePercentForNonEmpty,
+        "\(url.lastPathComponent) boş görünüyor (mürekkep %\(nonWhitePercent))")
     }
   }
 
@@ -259,9 +262,28 @@ final class Tur1Tests: XCTestCase {
     guard let result = ImageExportVerification.inspect(output) else {
       return XCTFail("görüntü okunamadı")
     }
+    guard let nonWhitePercent = result.nonWhitePercent else {
+      return XCTFail("beyaz-olmayan oran ölçülemedi")
+    }
     XCTAssertLessThan(
-      result.nonWhitePercent, ImageExportVerification.minNonWhitePercentForNonEmpty,
-      "mutasyon testi KIRMIZI vermedi: boş sayfa 'boş değil' sayıldı (mürekkep %\(result.nonWhitePercent))")
+      nonWhitePercent, ImageExportVerification.minNonWhitePercentForNonEmpty,
+      "mutasyon testi KIRMIZI vermedi: boş sayfa 'boş değil' sayıldı (mürekkep %\(nonWhitePercent))")
+  }
+
+  /// SÖZLEŞME TESTİ (2026-09-29 sessiz-hata denetimi, bulgu 4): `nonWhitePercent` artık
+  /// `Double?` — `nil` "ÖLÇEMEDİM" (bitmap konteksti kurulamadı/piksel arabelleği okunamadı)
+  /// demektir, `0` "GERÇEKTEN bembeyaz" demektir. ESKİ tip (`Double`, hep `0` dönen üç fail-open
+  /// dalı) bu ikisini AYIRT EDEMİYORDU — bir doğrulama kapısı ileride bu alana bağlansaydı
+  /// "ölçemedim" sessizce "temiz" ile karışırdı (fail-open). Bu test yalnızca TİP SEVİYESİNDE bu
+  /// ayrımın artık MÜMKÜN olduğunu çiviliyor; gerçek `inspect()` çağrısının `nil` dalına düşmesi
+  /// (CGContext/veri arabelleği başarısızlığı) dışarıdan enjekte edilebilir bir bağımlılık
+  /// olmadığı için burada TAKLİT EDİLMİYOR.
+  func testNonWhitePercentDistinguishesUnmeasuredFromGenuinelyWhite() {
+    let unmeasured = ImageExportVerification.Result(width: 10, height: 10, nonWhitePercent: nil)
+    let genuinelyWhite = ImageExportVerification.Result(width: 10, height: 10, nonWhitePercent: 0)
+    XCTAssertNotEqual(unmeasured, genuinelyWhite, "ölçülemedi ile bembeyaz AYNI sayılmamalı")
+    XCTAssertNil(unmeasured.nonWhitePercent)
+    XCTAssertEqual(genuinelyWhite.nonWhitePercent, 0)
   }
 
   func testImageExportRequiresPasswordForLockedFile() async throws {

@@ -8,8 +8,14 @@ public enum ImageExportVerification {
   public struct Result: Sendable, Equatable {
     public let width: Int
     public let height: Int
-    /// Beyaz (luma ≥ 250) OLMAYAN piksellerin oranı, yüzde. 0 ise görüntü tamamen beyazdır.
-    public let nonWhitePercent: Double
+    /// Beyaz (luma ≥ 250) OLMAYAN piksellerin oranı, yüzde. 0 GERÇEKTEN ölçülüp görüntünün
+    /// tamamen beyaz olduğu anlamına gelir; `nil` ÖLÇÜLEMEDİĞİ anlamına gelir (bitmap konteksti
+    /// kurulamadı ya da piksel arabelleği okunamadı) — bu FAIL-CLOSED ayrım 2026-09-29 sessiz-hata
+    /// denetiminde eklendi: önceden ikisi de `0` dönüyordu, yani "ölçemedim" ile "bembeyaz" AYIRT
+    /// EDİLEMİYORDU. Şu an yalnız testlerde kullanılıyor (bkz. dosya üstü yorum) ama üretime
+    /// bağlanırsa bu ayrım kapının fail-open OLMASINI engeller — projedeki diğer doğrulayıcılar
+    /// (`TrimVerification`, `QRVerification` vb.) fail-closed, tutarlılık burada da korunuyor.
+    public let nonWhitePercent: Double?
   }
 
   /// Bu luma değerinin (0–255, gri tonlama) altı "mürekkep var" sayılır; `TrimVerification`'la
@@ -25,14 +31,18 @@ public enum ImageExportVerification {
     else { return nil }
     let width = image.width
     let height = image.height
-    guard width > 0, height > 0 else { return Result(width: width, height: height, nonWhitePercent: 0) }
+    guard width > 0, height > 0 else {
+      return Result(width: width, height: height, nonWhitePercent: nil)
+    }
     guard
       let ctx = CGContext(
         data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
         space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
-    else { return Result(width: width, height: height, nonWhitePercent: 0) }
+    else { return Result(width: width, height: height, nonWhitePercent: nil) }
     ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-    guard let data = ctx.data else { return Result(width: width, height: height, nonWhitePercent: 0) }
+    guard let data = ctx.data else {
+      return Result(width: width, height: height, nonWhitePercent: nil)
+    }
     let bytesPerRow = ctx.bytesPerRow
     let buffer = data.bindMemory(to: UInt8.self, capacity: bytesPerRow * height)
     var nonWhite = 0

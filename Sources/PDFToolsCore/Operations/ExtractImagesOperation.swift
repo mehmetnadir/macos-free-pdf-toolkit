@@ -26,6 +26,13 @@ public struct ExtractImagesOperation: PDFOperation {
 
   public static let minSizeOptionID = "minSize"
 
+  /// Eşik altında kaldığı ya da GERÇEKTEN açılabilir bir görüntü olmadığı için elenen en az bir
+  /// görsel varsa (ve en az biri de TUTULDUYSA — hepsi elendiyse zaten `.skipped(reason:)` döner)
+  /// eklenen sabit not. 2026-09-29 sessiz-hata denetimi ÖNCESİ bu eleme kullanıcıya HİÇ
+  /// bildirilmiyordu (`note: nil`).
+  static let skippedImagesNote =
+    "Some embedded images were skipped — below the size threshold or the file could not be read."
+
   public init() {}
 
   public var options: [OperationOption] {
@@ -69,20 +76,32 @@ public struct ExtractImagesOperation: PDFOperation {
       }
       progress(0.7)
 
-      let extracted =
-        (try? fm.contentsOfDirectory(at: partialDir, includingPropertiesForKeys: nil)) ?? []
+      // Dizin listeleme arızası, pdfcpu'nun BAŞARIYLA ürettiği görselleri "hiç görsel yok" ile
+      // AYIRT EDİLEMEZ hale getiriyordu (2026-09-29 sessiz-hata denetimi) — `try?` ile yutmak
+      // YERİNE ayrı, tanınabilir bir hata olarak yükseltilir. Geçici dizin `TempArtifact`
+      // kapanışında kendiliğinden silindiği için elle temizlik gerekmiyor.
+      let extracted: [URL]
+      do {
+        extracted = try fm.contentsOfDirectory(at: partialDir, includingPropertiesForKeys: nil)
+      } catch {
+        throw ExtractImagesError.listingFailed(error.localizedDescription)
+      }
       var kept: [URL] = []
+      var skippedCount = 0
       for url in extracted {
         // Kanıt: her dosya GERÇEKTEN açılabilir bir görüntü olmalı (bkz. ImageExportVerification)
-        // — açılamayan bir dosya elenir, minSize eşiği piksel alanına göre uygulanır.
+        // — açılamayan dosya elenir, minSize eşiği piksel alanına göre uygulanır. İki eleme de
+        // SAYILIR: sebebi kullanıcıya sessizce yutulmaz (aşağıdaki `note`).
         guard let result = ImageExportVerification.inspect(url) else {
           try? fm.removeItem(at: url)
+          skippedCount += 1
           continue
         }
         if result.width * result.height >= minSize {
           kept.append(url)
         } else {
           try? fm.removeItem(at: url)
+          skippedCount += 1
         }
       }
 
@@ -100,7 +119,26 @@ public struct ExtractImagesOperation: PDFOperation {
       let finalOutputs =
         kept.map { outputDir.appendingPathComponent($0.lastPathComponent) }
         .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-      return .produced(urls: finalOutputs, note: nil)
+      // Sabit metin (sayı GÖMÜLMEZ) KASITLI: `L10n.tr` notu TAM DİZGE eşleşmesiyle
+      // çevirir (bkz. `Localization.swift`) — Türkçe karşılığı `tr.lproj`'da.
+      let note = skippedCount > 0 ? Self.skippedImagesNote : nil
+      return .produced(urls: finalOutputs, note: note)
+    }
+
+  }
+}
+
+/// `ExtractImagesOperation`'a özgü hatalar — `OperationError`'a EKLENMEDİ (bkz. `QRError`/
+/// `OCRError` ile AYNI desen: işleme özgü hata kendi dosyasında).
+public enum ExtractImagesError: Error, LocalizedError, Equatable {
+  /// pdfcpu BAŞARIYLA çalıştı ama üretilen dizin okunamadı (izin/disk hatası vb.) — bu, "hiç
+  /// görsel yok" ile KARIŞTIRILMAMALI (bkz. `run()` dosya üstü yorumu).
+  case listingFailed(String)
+
+  public var errorDescription: String? {
+    switch self {
+    case .listingFailed(let detail):
+      return "Could not list the extracted images — \(detail)"
     }
   }
 }

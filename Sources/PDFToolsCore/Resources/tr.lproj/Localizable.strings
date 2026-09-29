@@ -150,6 +150,7 @@
 "Restricted permissions" = "İzinler kısıtlı";
 "Run OCR" = "OCR Yap";
 "Select a bookmark JSON file to import" = "İçe aktarılacak yer imi JSON dosyasını seçin";
+"Some embedded images were skipped — below the size threshold or the file could not be read." = "Bazı gömülü görseller atlandı — boyut eşiğinin altında kaldı ya da dosya okunamadı.";
 "Size" = "Boyut";
 "Small" = "Küçük";
 "Split" = "Parçala";
