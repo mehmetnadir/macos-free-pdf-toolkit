@@ -52,6 +52,27 @@ Gizlilik ve Güvenlik**'i aç, PDF Tools'u adıyla anan mesaja kadar in ve **Yin
 de Aç**'a bas. İki durumda da sonrasında normal açılır. Bu gerçek bir zahmet,
 formalite değil; notarization gelince ortadan kalkacak.
 
+**Homebrew.** Bu depoda `Casks/pdf-tools.rb` (uygulama) ve `Formula/pdftools.rb`
+(CLI) hazır, ama bunların işaret ettiği tap deposu — `mehmetnadir/homebrew-tap`
+— GitHub'da henüz YOK, ve iki dosyada da `sha256` alanı hâlâ yer tutucu çünkü
+hesaplanacak etiketli bir release de yok. **Bu şu an ÇALIŞMIYOR.** Tap
+yayınlandığında ve gerçek bir release olduğunda kurulum şöyle olacak:
+
+```bash
+brew tap mehmetnadir/tap
+brew install --cask pdf-tools   # uygulama
+brew install pdftools           # CLI
+```
+
+O güne kadar yukarıdaki DMG indirmesini kullanın.
+
+**Otomatik güncelleme.** Uygulama güncellemeleri kendisi, HTTPS üzerinden
+[Sparkle](https://github.com/sparkle-project/Sparkle) ile arar ve kurmadan önce
+her güncellemenin EdDSA imzasını `Info.plist`'e gömülü genel anahtara
+(`SUPublicEDKey`) karşı doğrular. Pratikte bu şu demek: güncel kalmak için
+DMG'yi elle yeniden indirmeniz gerekmez, ve doğru özel anahtarla imzalanmamış
+bir güncelleme kurulmaz, reddedilir.
+
 ### İlk açılış
 
 **PDF Tools.app**'i aç. Hiçbir şey yüklü değilken bırakma alanı, bir
@@ -88,8 +109,10 @@ swift test                     # 186 test, Tests/PDFToolsCoreTests/
 ./packaging/build.sh           # build/PDF Tools.app üretir (Developer ID imzası için SIGN_IDENTITY)
 ```
 
-Harici SwiftPM bağımlılığı yok. Projedeki tek üçüncü taraf kod, paketle taşınan
-iki motor ikilisidir.
+Tek harici SwiftPM bağımlılığı [Sparkle](https://github.com/sparkle-project/Sparkle)'dır (tam
+sürüme pinli, otomatik güncelleme için). PDF motorları (qpdf, pdfcpu) SwiftPM bağımlılığı
+DEĞİLDİR — uygulama paketine gömülen derlenmiş ikililerdir. Üçünün de tam lisans ayrıntıları için
+[Third-party components](THIRD_PARTY.md)'e bakın.
 
 ## İşlemler
 

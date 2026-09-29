@@ -52,6 +52,28 @@ PDF Tools, and press **Open Anyway**. Either way it launches normally from then
 on. This is a real inconvenience, not a formality; it goes away when
 notarization lands.
 
+**Homebrew.** This repo ships `Casks/pdf-tools.rb` (the app) and
+`Formula/pdftools.rb` (the CLI), but the tap they point to —
+`mehmetnadir/homebrew-tap` — does not exist on GitHub yet, and both files still
+carry a placeholder `sha256` because there has been no tagged release to
+compute one from. **This does not work yet.** Once the tap is published and a
+real release exists, installation will look like:
+
+```bash
+brew tap mehmetnadir/tap
+brew install --cask pdf-tools   # the app
+brew install pdftools           # the CLI
+```
+
+Until then, use the DMG download above.
+
+**Auto-updates.** The app checks for updates itself over HTTPS using
+[Sparkle](https://github.com/sparkle-project/Sparkle) and verifies every
+update's EdDSA signature against the public key embedded in `Info.plist`
+(`SUPublicEDKey`) before installing it. In practice: you never have to
+manually re-download a DMG to stay current, and an update that isn't signed
+with the matching private key is rejected rather than installed.
+
 ### First run
 
 Open **PDF Tools.app**. With nothing loaded you get the drop area, a
@@ -89,8 +111,10 @@ swift test                     # 186 tests, Tests/PDFToolsCoreTests/
 ./packaging/build.sh           # produces build/PDF Tools.app (set SIGN_IDENTITY for a Developer ID signature)
 ```
 
-No external SwiftPM dependencies. The only third-party code in the project is
-the two vendored engine binaries.
+The only external SwiftPM dependency is [Sparkle](https://github.com/sparkle-project/Sparkle)
+(pinned to an exact version, used for auto-updates). The PDF engines (qpdf, pdfcpu) are not
+SwiftPM dependencies — they are compiled binaries vendored into the app bundle. See
+[Third-party components](THIRD_PARTY.md) for full license details on all three.
 
 ## Operations
 

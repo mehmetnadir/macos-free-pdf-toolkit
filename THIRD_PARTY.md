@@ -1,8 +1,8 @@
 # Third-Party Components
 
 PDF Tools itself is MIT-licensed (see [LICENSE](LICENSE)). It bundles two compiled command-line
-engines inside the app, which carry their own licenses. This file lists everything distributed
-with the app binary, not build/dev-only tooling.
+engines and one framework inside the app, which carry their own licenses. This file lists
+everything distributed with the app binary, not build/dev-only tooling.
 
 ---
 
@@ -55,7 +55,21 @@ with the app binary, not build/dev-only tooling.
   source (not applicable here — the source is unmodified and only a compiled static library is
   linked in). No modifications were made to libjpeg-turbo's source in this project.
 
-## 4. Ghostscript (NOT bundled — optional runtime dependency)
+## 4. Sparkle
+
+- **Component:** Sparkle
+- **Version:** 2.9.6
+- **Upstream:** https://github.com/sparkle-project/Sparkle
+- **Distributed as:** `Sparkle.framework` inside `Contents/Frameworks/` in the app bundle (used
+  for in-app auto-update checks and installs)
+- **License:** MIT + BSD-2-Clause + Zlib-like (three licenses cover different parts of the
+  framework; not a single SPDX identifier)
+- **Full license text:** https://raw.githubusercontent.com/sparkle-project/Sparkle/2.9.6/LICENSE
+- **Attribution / NOTICE:** None of the three licenses impose a NOTICE-propagation duty beyond
+  retaining copyright/license notices; the license text linked above is the complete attribution
+  requirement. No modifications were made to Sparkle's source in this project.
+
+## 5. Ghostscript (NOT bundled — optional runtime dependency)
 
 - **Component:** Ghostscript (`gs`)
 - **Upstream:** https://www.ghostscript.com / https://github.com/ArtifexSoftware/ghostpdl

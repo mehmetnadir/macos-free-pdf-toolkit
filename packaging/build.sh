@@ -51,6 +51,18 @@ if [ -d vendor/licenses ]; then
   mkdir -p "$APP/Contents/Resources/licenses"
   cp vendor/licenses/* "$APP/Contents/Resources/licenses/"
 fi
+# Depoda tutulan lisans metinleri (Sparkle.framework dağıtıldığı için MIT/BSD-2/Zlib metni
+# ZORUNLU olarak pakete girer — linkle yetinmek bu lisansları karşılamaz). vendor/licenses
+# gitignore'lu olduğundan bunlar ayrı, izlenen bir dizinde yaşar ve eksikse derleme DURUR.
+if [ -d packaging/licenses ]; then
+  mkdir -p "$APP/Contents/Resources/licenses"
+  cp packaging/licenses/* "$APP/Contents/Resources/licenses/"
+else
+  echo "HATA: packaging/licenses yok — Sparkle lisans metni pakete giremez" >&2
+  exit 1
+fi
+[ -s "$APP/Contents/Resources/licenses/sparkle-LICENSE.txt" ] || {
+  echo "HATA: sparkle-LICENSE.txt pakete kopyalanmadı" >&2; exit 1; }
 # SwiftPM kaynak paketleri (Bundle.module) — çeviri tabloları burada yaşıyor.
 # ZORUNLU: `Bundle.module` bulunamazsa SwiftPM'in ürettiği erişimci fatalError atar, yani
 # uygulama AÇILIŞTA ÇÖKER. Ayrıca paket kopyalanıp da içindeki .lproj eksikse çökme olmaz,
