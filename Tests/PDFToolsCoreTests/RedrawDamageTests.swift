@@ -226,6 +226,25 @@ final class RedrawDamageTests: XCTestCase {
     return buffer
   }
 
+  /// Basit, CoreGraphics ile üretilmiş `pageCount` sayfalı boş bir PDF — `RewriteOutput.finish`in
+  /// yeni sayfa-sayısı kapısını, kaynak/çıktı arasında GERÇEK bir dosya çifti üzerinden sınamak
+  /// için (bkz. `testRewriteFinishThrowsWhenOutputHasFewerPagesThanSource`). Hasar ölçümüyle
+  /// ilgisi yok, bu yüzden hand-built fixture'a gerek yok — `Tur1Tests`teki çok-sayfalı
+  /// fixture'larla AYNI üslup.
+  private static func makeBlankPagesFixture(pageCount: Int, to url: URL) {
+    try? FileManager.default.removeItem(at: url)
+    var box = CGRect(x: 0, y: 0, width: 100, height: 100)
+    guard let consumer = CGDataConsumer(url: url as CFURL) else { fatalError("CGDataConsumer") }
+    guard let context = CGContext(consumer: consumer, mediaBox: &box, nil) else {
+      fatalError("CGContext")
+    }
+    for _ in 0..<pageCount {
+      context.beginPDFPage(nil)
+      context.endPDFPage()
+    }
+    context.closePDF()
+  }
+
   // MARK: - Testler
 
   /// a) Elle kurulan fixture'ın geçerliliği: qpdf ile okunabiliyor (PDFStructureCheck.isSound)
@@ -325,6 +344,48 @@ final class RedrawDamageTests: XCTestCase {
     let note = try XCTUnwrap(report.note, "yeniden çizme hasarı bildirilmedi: \(report.changes)")
     XCTAssertTrue(note.contains("/ICCBased"), note)
     XCTAssertTrue(note.hasPrefix("redrawing changed the file:"), note)
+  }
+
+  /// f) SAYFA KAYBI KAPISI (2026-09-29 sessiz-hata denetimi, bulgu 2): `SearchablePDFOperation`
+  /// (ve `RewriteOutput.finish` çağıran her işlem — `OCROperation` yalnız kendi metin dosyasında,
+  /// ama AYNI döngü deseni) sayfa sayfa yeniden çizerken `document.page(at:)` bir sayfa için
+  /// `nil` dönüp döngü sessizce `continue` ederse çıktı EKSİK SAYFALI oluyordu; `beginPDFPage`/
+  /// `endPDFPage` o sayfa için hiç çağrılmadığından çıktı sessizce kısa kalıyordu ve hiçbir kapı
+  /// bunu yakalamıyordu. Bu test, kaynaktan bir sayfa EKSİK bir "çıktı" üreterek (üç sayfalık
+  /// kaynağa karşı iki sayfalık çıktı — TAM OLARAK bir sayfanın döngüde atlanmasının sonucu) yeni
+  /// `PDFContentInventory.pageCount` kapısının GERÇEKTEN tetiklendiğini kanıtlıyor.
+  ///
+  /// MUTASYON KANITI (elle koşuldu, görev raporunda belgelendi): `RewriteOutput.finish` içindeki
+  /// `guard after.pageCount == before.pageCount else { throw ... }` satırı geçici olarak
+  /// yorum-satırına alınıp bu test çalıştırıldığında KIRMIZI verdi (hata hiç fırlatılmadı),
+  /// satır geri konunca YEŞİLE döndü.
+  func testRewriteFinishThrowsWhenOutputHasFewerPagesThanSource() async throws {
+    let dir = try makeTempDirectory()
+    let sourceURL = dir.appendingPathComponent("source_3pages.pdf")
+    let outputURL = dir.appendingPathComponent("output_2pages.pdf")
+    Self.makeBlankPagesFixture(pageCount: 3, to: sourceURL)
+    Self.makeBlankPagesFixture(pageCount: 2, to: outputURL)
+
+    do {
+      _ = try await RewriteOutput.finish(output: outputURL, source: sourceURL)
+      XCTFail("sayfa kaybı sessizce geçti — kapı tetiklenmedi")
+    } catch let OperationError.redrawLostPages(before, after) {
+      XCTAssertEqual(before, 3)
+      XCTAssertEqual(after, 2)
+    }
+  }
+
+  /// Kaynak/çıktı sayfa sayısı EŞİTKEN kapı YANLIŞ ALARM vermemeli (mevcut testlerin — Tur8/Tur9 —
+  /// yeşil kalması zaten bunu ölçüyor, ama doğrudan bir birim testi de burada).
+  func testRewriteFinishDoesNotThrowWhenPageCountsMatch() async throws {
+    let dir = try makeTempDirectory()
+    let sourceURL = dir.appendingPathComponent("source_2pages.pdf")
+    let outputURL = dir.appendingPathComponent("output_2pages.pdf")
+    Self.makeBlankPagesFixture(pageCount: 2, to: sourceURL)
+    Self.makeBlankPagesFixture(pageCount: 2, to: outputURL)
+
+    let report = try await RewriteOutput.finish(output: outputURL, source: sourceURL)
+    XCTAssertEqual(report.changes, [])
   }
 
   /// c) Yeniden çizme envanteri bozar: CoreGraphicsTrimEngine ile kesince

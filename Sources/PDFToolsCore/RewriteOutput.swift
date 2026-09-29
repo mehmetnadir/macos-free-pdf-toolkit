@@ -44,6 +44,15 @@ public enum RewriteOutput {
     let before = try? await PDFContentInventory.read(source, qpdf: qpdf)
     let after = try? await PDFContentInventory.read(output, qpdf: qpdf)
     guard let before, let after else { return Report(changes: []) }
+    // SERT KAPI (2026-09-29, sessiz-hata denetimi): `SearchablePDFOperation`/`OCROperation` gibi
+    // sayfa sayfa yeniden çizen işlemlerde bir sayfa açılamayıp döngü sessizce `continue` ederse
+    // çıktı EKSİK SAYFALI oluyordu ve bunu yakalayan hiçbir kapı yoktu (yalnız `PageNumberOperation`/
+    // `WatermarkAddOperation` KENDİ `numberOfPages` kontrolünü `finish` çağrısından ÖNCE yapıyordu —
+    // bu yüzden onlarda zaten SIFIRDIR ve bu kapı orada sessizce hiç tetiklenmez). Burada eklenmesi
+    // `RewriteOutput.finish` KULLANAN HER işlemi (bugünkü VE gelecekteki) tek yerden korur.
+    guard after.pageCount == before.pageCount else {
+      throw OperationError.redrawLostPages(before: before.pageCount, after: after.pageCount)
+    }
     return Report(changes: after.differences(from: before))
   }
 }

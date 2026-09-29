@@ -283,17 +283,37 @@ final class LosslessTrimTests: XCTestCase {
   /// sürüm düşmesi) fark olarak bildirilmeli. Değerler gerçek ölçümden alınmıştır.
   func testInventoryGateReportsRedrawDamage() {
     let source = PDFContentInventory(
-      pdfVersion: "1.4", imageCount: 117, colorSpaces: ["/DeviceGray": 86, "/Indexed": 28],
+      pdfVersion: "1.4", pageCount: 130, imageCount: 117,
+      colorSpaces: ["/DeviceGray": 86, "/Indexed": 28],
       metadataStreams: 7, embeddedFonts: 23, annotations: 4)
     let redrawn = PDFContentInventory(
-      pdfVersion: "1.3", imageCount: 117, colorSpaces: ["/ICCBased": 57, "/DeviceGray": 30, "/Indexed": 28],
+      pdfVersion: "1.3", pageCount: 130, imageCount: 117,
+      colorSpaces: ["/ICCBased": 57, "/DeviceGray": 30, "/Indexed": 28],
       metadataStreams: 0, embeddedFonts: 23, annotations: 0)
     let differences = redrawn.differences(from: source)
     XCTAssertTrue(differences.contains { $0.contains("colour spaces") }, "\(differences)")
     XCTAssertTrue(differences.contains { $0.contains("metadata") }, "\(differences)")
     XCTAssertTrue(differences.contains { $0.contains("annotations") }, "\(differences)")
     XCTAssertTrue(differences.contains { $0.contains("version lowered") }, "\(differences)")
+    XCTAssertFalse(
+      differences.contains { $0.contains("page count") },
+      "sayfa sayısı EŞİTKEN 'page count' farkı raporlanmamalı: \(differences)")
     XCTAssertEqual(source.differences(from: source), [], "aynı envanter fark üretmemeli")
+  }
+
+  /// `PDFContentInventory.pageCount` `qpdf --json`ın nesne sözlüğünden `/Type /Page` sayılarak
+  /// çıkarılır — ek bir alt süreç çağrısı YOK (bkz. `pageCount` alan yorumu, 2026-09-29 sessiz-hata
+  /// denetimi, bulgu 2). Bu test alt süreç KURMADAN, `qpdf --json=latest`in ürettiği şekle BENZER
+  /// küçük bir sözlükle `parse`ı doğrudan sınıyor.
+  func testParseCountsPageTypeObjectsAsPageCount() {
+    let objects: [String: Any] = [
+      "obj:1 0 R": ["value": ["/Type": "/Page", "/Parent": "2 0 R"]],
+      "obj:5 0 R": ["value": ["/Type": "/Page", "/Parent": "2 0 R"]],
+      "obj:8 0 R": ["value": ["/Type": "/Page", "/Parent": "2 0 R"]],
+      "obj:2 0 R": ["value": ["/Type": "/Pages", "/Count": 3, "/Kids": ["1 0 R", "5 0 R", "8 0 R"]]],
+    ]
+    let inventory = PDFContentInventory.parse(header: ["pdfversion": "1.3"], objects: objects)
+    XCTAssertEqual(inventory.pageCount, 3, "/Pages nesnesi SAYILMAMALI, yalnız /Type /Page olanlar")
   }
 
   /// MOTOR SEÇİMİ SÖZLEŞMESİ. Bu testin sebebi: sentetik fixture'lar yeniden çizme hasarını

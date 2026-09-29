@@ -17,6 +17,13 @@ import Foundation
 /// 1.3'e DÜŞMÜŞ. Hiçbiri piksel karşılaştırmasında görünmüyordu.
 public struct PDFContentInventory: Sendable, Equatable {
   public let pdfVersion: String
+  /// Sayfa AĞACINDAKİ `/Type /Page` nesnelerinin sayısı (bkz. `parse` — `qpdf --json`ın zaten
+  /// döktüğü nesne sözlüğünden SAYILIR, ek bir alt süreç çağrısı GEREKMEZ). NEDEN VAR
+  /// (2026-09-29, sessiz-hata denetimi): `SearchablePDFOperation`/`OCROperation` gibi sayfa sayfa
+  /// yeniden çizen işlemlerde `document.page(at:)` bir sayfa için `nil` dönüp döngü `continue`
+  /// ederse çıktı EKSİK SAYFALI oluyordu ve hiçbir kapı bunu yakalamıyordu — `RewriteOutput.finish`
+  /// bu alanı kullanarak SERT bir kapı kuruyor (bkz. o dosyadaki kontrol).
+  public let pageCount: Int
   public let imageCount: Int
   /// Renk uzayı adı → o uzayda kaç görüntü. Dolaylı başvurular BİR seviye çözülür (`/ICCBased`,
   /// `/Indexed`, `/Separation` gibi aile adı alınır) — nesne numaraları dosya yeniden yazılınca
@@ -27,9 +34,13 @@ public struct PDFContentInventory: Sendable, Equatable {
   public let annotations: Int
 
   /// İki envanter arasındaki MADDİ farklar, kullanıcıya gösterilebilir cümleler olarak.
-  /// Boş liste = içerik korunmuş.
+  /// Boş liste = içerik korunmuş. Sayfa kaybı BURADA da raporlanır (metin olarak) ama asıl kapı
+  /// `RewriteOutput.finish`'te — orası SERTTİR (throw), bu liste yalnız açıklayıcı özettir.
   public func differences(from source: PDFContentInventory) -> [String] {
     var result: [String] = []
+    if pageCount != source.pageCount {
+      result.append("page count \(source.pageCount) → \(pageCount)")
+    }
     if imageCount != source.imageCount {
       result.append("images \(source.imageCount) → \(imageCount)")
     }
@@ -90,11 +101,13 @@ public struct PDFContentInventory: Sendable, Equatable {
     var metadata = 0
     var fonts = 0
     var annotations = 0
+    var pages = 0
     let fontFileKeys = ["/FontFile", "/FontFile2", "/FontFile3"]
 
     for (_, raw) in objects {
       guard let entry = raw as? [String: Any] else { continue }
       if let value = entry["value"] as? [String: Any] {
+        if value["/Type"] as? String == "/Page" { pages += 1 }
         if let annots = value["/Annots"] as? [Any] { annotations += annots.count }
         if fontFileKeys.contains(where: { value[$0] != nil }) { fonts += 1 }
       }
@@ -111,7 +124,7 @@ public struct PDFContentInventory: Sendable, Equatable {
     }
 
     return PDFContentInventory(
-      pdfVersion: header["pdfversion"] as? String ?? "0",
+      pdfVersion: header["pdfversion"] as? String ?? "0", pageCount: pages,
       imageCount: images, colorSpaces: colorSpaces, metadataStreams: metadata,
       embeddedFonts: fonts, annotations: annotations)
   }

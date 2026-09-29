@@ -85,16 +85,25 @@ public struct OCROperation: PDFOperation {
     // Dosyada zaten metin katmanı var mı — `note`'ta ayrıca uyarılır (bkz. aşağı).
     let hasExistingTextLayer = OCRVerification.hasExistingTextLayer(at: file.url)
 
-    var pageBlocks: [String] = []
+    // Sayfa numarasından metne — DİZİ DEĞİL (bkz. `combine` yorumu): bir sayfa açılamayıp
+    // atlanırsa dizi kayıp sonraki TÜM sayfaları yanlış numarayla etiketlemesin diye.
+    var pageBlocks: [Int: String] = [:]
     var confidences: [Float] = []
+    var unopenedPages: [Int] = []
     pageBlocks.reserveCapacity(total)
 
     for pageIndex in 1...total {
       try Task.checkCancellation()
-      guard let page = document.page(at: pageIndex) else { continue }
+      guard let page = document.page(at: pageIndex) else {
+        // SESSİZCE YUTULMAZ (bkz. dosya üstü yorum, 2026-09-29 sessiz-hata denetimi) — sayfa
+        // numarası `pageBlocks`'a hiç girmez, `combine` boş bırakıp ayracı yine de basar, ve
+        // kullanıcıya `note`'ta AÇIKÇA bildirilir (bkz. aşağı).
+        unopenedPages.append(pageIndex)
+        continue
+      }
       let lines = try OCRVerification.recognizeText(
         onPage: page, dpi: dpi, languages: languages, level: level)
-      pageBlocks.append(lines.map(\.text).joined(separator: "\n"))
+      pageBlocks[pageIndex] = lines.map(\.text).joined(separator: "\n")
       confidences.append(contentsOf: lines.map(\.confidence))
       progress(Double(pageIndex) / Double(total) * 0.9)
     }
@@ -103,7 +112,7 @@ public struct OCROperation: PDFOperation {
       return .skipped(reason: "No text recognized — pages may be blank or too low quality to read")
     }
 
-    let combined = Self.combine(pageBlocks)
+    let combined = Self.combine(pageBlocks, total: total)
     let output = Self.uniqueTextURL(for: file.url, suffix: "_ocr", in: context.outputDirectory)
     let fm = FileManager.default
     // GÜVENLİK: Swift'in KENDİSİ veri yazıyor (metin dosyası) — `TempArtifact.writeExclusive`
@@ -153,20 +162,40 @@ public struct OCROperation: PDFOperation {
       noteParts.append(
         "This file already has a text layer — 'Extract Text' gives a more accurate result.")
     }
+    // SESSİZCE YUTULMAZ (bkz. `run()` döngüsü ve `unopenedPagesNote` yorumu): bir sayfa
+    // açılamadıysa kullanıcı bunu NOT satırından öğrenir, sonuç metninden sessizce kaybolmaz.
+    if let unopenedNote = Self.unopenedPagesNote(unopenedPages) {
+      noteParts.append(unopenedNote)
+    }
     return .produced(urls: [output], note: noteParts.joined(separator: " "))
   }
 
-  /// Sayfalar arasına `--- page N ---` ayracı koyar (N: takip eden sayfanın numarası) — görev
-  /// tanımındaki sabit biçim, `ExtractTextOperation`'ın "pages" kipiyle BENZER mantık (OCR'da
-  /// biçim seçimi YOK, hep ayraçlı).
-  static func combine(_ pageTexts: [String]) -> String {
-    guard !pageTexts.isEmpty else { return "" }
+  /// Sayfalar arasına `--- page N ---` ayracı koyar; `N` GERÇEK sayfa numarasıdır — `pages`
+  /// sözlüğünde bir anahtar EKSİKSE (bkz. `run()`: `document.page(at:)` o sayfa için `nil` döndü)
+  /// yalnız o sayfanın METNİ boş kalır, ayracın numarası KAYMAZ. ESKİ hata (2026-09-29 sessiz-hata
+  /// denetimi): girdi düz bir diziydi ve atlanan sayfa dizide DELİK bırakmıyordu — bu yüzden
+  /// atlanan sayfadan SONRAKİ TÜM sayfalar bir numara KÜÇÜK etiketleniyordu (`combine`'ı doğrudan
+  /// sınayan `OCRCombineTests.testSkippedPageDoesNotShiftSubsequentPageNumbers` bu regresyonu
+  /// mutasyonla kanıtlıyor).
+  static func combine(_ pages: [Int: String], total: Int) -> String {
+    guard total > 0 else { return "" }
     var parts: [String] = []
-    parts.reserveCapacity(pageTexts.count)
-    for (index, text) in pageTexts.enumerated() {
-      parts.append("--- page \(index + 1) ---\n\(text)")
+    parts.reserveCapacity(total)
+    for pageNumber in 1...total {
+      parts.append("--- page \(pageNumber) ---\n\(pages[pageNumber] ?? "")")
     }
     return parts.joined(separator: "\n\n")
+  }
+
+  /// `unopenedPages` boşsa `nil` — sayfaları SIRALI, insan-okur listeye çevirir. Sayfa numaraları
+  /// gömülü olduğu için `BookmarkOperation`'ın "Exported N bookmarks" notuyla AYNI gerekçeyle bu
+  /// metin Türkçe tabloda TAM DİZGE eşleşmesi BULAMAZ (bkz. `Localization.swift` tasarım kararı:
+  /// anahtar İngilizce kaynağın KENDİSİ) — kabul edilmiş, mevcut bir sınır, bu turun kapsamı DEĞİL.
+  static func unopenedPagesNote(_ unopenedPages: [Int]) -> String? {
+    guard !unopenedPages.isEmpty else { return nil }
+    let list = unopenedPages.sorted().map(String.init).joined(separator: ", ")
+    return "Page(s) \(list) could not be opened and were skipped — page numbers for the "
+      + "remaining pages are unaffected."
   }
 
   /// `ExtractTextOperation.uniqueTextURL` ile AYNI desen, yalnız bir `suffix` parametresi eklendi

@@ -95,6 +95,10 @@ public enum OperationError: Error, LocalizedError, Equatable {
   /// UYUŞMAYAN giriş noktasından çağrıldığında fırlatılır — programcı hatası, kullanıcıya normalde
   /// hiç görünmemeli.
   case unsupportedOperationMode(String)
+  /// `RewriteOutput.finish` çıktının sayfa sayısının kaynaktan AZ olduğunu tespit etti — sayfa
+  /// sayfa yeniden çizen bir işlemde (OCR, Aranabilir Yap, Sayfa Numarası, QR, Filigran) bir sayfa
+  /// açılamayıp sessizce atlanmış olabilir. Çıktı silinir.
+  case redrawLostPages(before: Int, after: Int)
 
   public var errorDescription: String? {
     switch self {
@@ -125,6 +129,9 @@ public enum OperationError: Error, LocalizedError, Equatable {
     case .imageExportVerificationFailed:
       return "Image export failed — number of files produced doesn't match the page count"
     case .unsupportedOperationMode(let message): return message
+    case .redrawLostPages(let before, let after):
+      return "Output has fewer pages than the source (\(before) → \(after)) — "
+        + "a page failed to render, output deleted"
     }
   }
 }
