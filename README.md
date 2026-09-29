@@ -107,7 +107,7 @@ additionally needs `cmake`, `go`, `gh`.
 ```bash
 ./packaging/build-engines.sh   # builds qpdf + pdfcpu into vendor/bin/ (needs internet, repeatable)
 swift build                    # universal build: swift build --arch arm64 --arch x86_64
-swift test                     # 186 tests, Tests/PDFToolsCoreTests/
+swift test                     # 192 tests, Tests/PDFToolsCoreTests/
 ./packaging/build.sh           # produces build/PDF Tools.app (set SIGN_IDENTITY for a Developer ID signature)
 ```
 
@@ -698,7 +698,7 @@ The trim-engine comparison is in [Trim Bleed](#trim-bleed).
 
 ## Testing
 
-`swift test` runs **186 tests**. Five of them depend on what the machine has:
+`swift test` runs **192 tests**. Five of them depend on what the machine has:
 three need Ghostscript, one needs Ghostscript to be *absent* (it checks the
 error message you get without it), and one needs Vision's Turkish language pack.
 So a Mac with `gs` and Turkish Vision skips 1, while CI — which has neither —

@@ -66,6 +66,15 @@ public struct WatermarkAddOperation: PDFOperation {
   /// Sayfa kenarından metin taban çizgisine uzaklık (punto) — üst/alt bilgi konumları için.
   private static let edgeMargin: CGFloat = 28
 
+  /// YALNIZCA TEST İÇİN: `true` iken metin GERÇEKTEN ÇİZİLMEZ (`CTLineDraw` atlanır) — döndürme/
+  /// konum/renk/alfa durumu ve sayfa sayısı AYNI kalır, yalnız glif gösterme operatörü hiç
+  /// üretilmez. `WatermarkVerification`'ın yapısal kapısının GERÇEKTEN "filigran çizilmedi"
+  /// durumunu yakaladığını kanıtlayan MUTASYON testi için var — kendi çizim kodumuzu bilerek
+  /// bozup kapının hâlâ düştüğünü görmeden "kapı çalışıyor" denemez (bkz. proje geneli ilke).
+  /// Varsayılan `false`; yalnız `@testable import` ile erişilebilir, üretim akışına asla true
+  /// olarak girmez.
+  static var testingSkipTextDraw = false
+
   public init() {}
 
   public var options: [OperationOption] {
@@ -134,16 +143,43 @@ public struct WatermarkAddOperation: PDFOperation {
         throw WatermarkError.verificationFailed("page count wasn't preserved")
       }
 
-      // Kanıt 2: filigran GERÇEKTEN beklenen bölgede mürekkep bırakmış mı — motora (kendi çizim
-      // kodumuza) güvenilmiyor, kaynak ve çıktı AYNI bölgede render edilip kıyaslanıyor (bkz.
-      // `WatermarkVerification`). Yalnız 1. sayfa denetlenir: konum/opaklık/renk her hedef
-      // sayfada AYNI olduğundan (`QRAddOperation`'ın "her sayfada aynı" kararıyla aynı gerekçe)
-      // tek sayfa yeterli kanıt.
-      guard
-        let delta = WatermarkVerification.delta(
-          sourceURL: file.url, outputURL: partial, pageIndex: 1, position: position),
-        delta >= WatermarkVerification.minDeltaPercent
-      else {
+      // NOT (çakışma çözümü 29.09): geçici çıktı artık `TempArtifact.withPrivateDirectory`
+      // içinde yaşıyor, kapanışta kendiliğinden siliniyor — reddedilen çıktıyı elle silen
+      // `fm.removeItem` çağrıları bu yüzden kaldırıldı.
+      // Kanıt 2: filigran GERÇEKTEN beklenen bölgede çizilmiş mi — motora (kendi çizim kodumuza)
+      // güvenilmiyor. İKİ BAĞIMSIZ EKSEN (ölçüldü, 2026-09-29 — gerçek yoğun/renkli dosyalarda
+      // piksel eşiği TEK BAŞINA SATÜRE oluyor, bkz. `WatermarkVerification` dosya üstü notu):
+      //   2a. YAPISAL (BİRİNCİL): çıktının içerik akışında GERÇEKTEN bir metin gösterme operatörü
+      //       var mı, beklenen konumun geometrisiyle (merkezde 45° döndürme, üst/altta doğru yarı)
+      //       uyumlu mu — `WatermarkStructuralCheck`. Ölçülemezse (qpdf yok, akış okunamadı)
+      //       FAIL-CLOSED: "geçti" değil "düştü" denir.
+      //   2b. PİKSEL (İKİNCİL/doğrulayıcı): çıktı−kaynak mürekkep farkı SIFIR (ya da negatif)
+      //       DEĞİL mi — yapısal kanıt varken render tamamen bozuksa (ör. renk uzayı feci
+      //       hasarlı) yine de reddeder.
+      // Yalnız 1. sayfa denetlenir: konum/opaklık/renk her hedef sayfada AYNI olduğundan
+      // (`QRAddOperation`'ın "her sayfada aynı" kararıyla aynı gerekçe) tek sayfa yeterli kanıt.
+      let structuralPassed: Bool
+      do {
+        guard let qpdf = EngineLocator.find("qpdf") else {
+            throw WatermarkError.verificationFailed("qpdf engine not found — could not verify")
+        }
+        guard
+          let evidence = try await WatermarkVerification.structuralTextWasDrawn(
+            outputURL: partial, pageIndex: 1, position: position, qpdf: qpdf)
+        else {
+            throw WatermarkError.verificationFailed(
+            "watermark content stream could not be verified")
+        }
+        structuralPassed = evidence
+      } catch let error as WatermarkError {
+        throw error
+      } catch {
+        throw WatermarkError.verificationFailed(
+          "watermark content stream could not be verified — \(error.localizedDescription)")
+      }
+      let pixelDelta = WatermarkVerification.delta(
+        sourceURL: file.url, outputURL: partial, pageIndex: 1, position: position)
+      guard structuralPassed, let pixelDelta, pixelDelta > 0 else {
         throw WatermarkError.verificationFailed("watermark wasn't detected in the expected area")
       }
 
@@ -199,15 +235,15 @@ public struct WatermarkAddOperation: PDFOperation {
       switch position {
       case "header":
         ctx.textPosition = CGPoint(x: box.midX - lineWidth / 2, y: box.maxY - edgeMargin - fontSize)
-        CTLineDraw(line, ctx)
+        if !testingSkipTextDraw { CTLineDraw(line, ctx) }
       case "footer":
         ctx.textPosition = CGPoint(x: box.midX - lineWidth / 2, y: box.minY + edgeMargin)
-        CTLineDraw(line, ctx)
+        if !testingSkipTextDraw { CTLineDraw(line, ctx) }
       default:  // "center" — çapraz (45°), sayfa ortasından geçer.
         ctx.translateBy(x: box.midX, y: box.midY)
         ctx.rotate(by: .pi / 4)
         ctx.textPosition = CGPoint(x: -lineWidth / 2, y: 0)
-        CTLineDraw(line, ctx)
+        if !testingSkipTextDraw { CTLineDraw(line, ctx) }
       }
       ctx.restoreGState()
       ctx.endPDFPage()
