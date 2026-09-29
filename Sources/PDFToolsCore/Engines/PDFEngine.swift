@@ -17,9 +17,14 @@ import Foundation
 /// çağıranın disiplinine güvenmemeli — ileride biri yanlışlıkla göreli bir `URL` üretirse bu TEK
 /// nokta koruma devreye girer.
 enum QPDFArgument {
-  static func path(for url: URL) -> String {
-    let path = url.path
-    return path.hasPrefix("-") ? "./" + path : path
+  static func path(for url: URL) -> String { path(for: url.path) }
+
+  /// Dizge aşırı yüklemesi TAŞINABİLİR testler için var: `-` ile başlayan GÖRELİ bir `file:` URL'i
+  /// kurmak Foundation sürümüne göre değişiyor (ölçüldü 2026-09-29: yerelde `path` = "-bare.pdf",
+  /// CI'ın macOS 15 çalıştırıcısında "" — yani uçtan uca test platforma bağımlı hâle geliyor).
+  /// Koruma mantığı burada dizge düzeyinde çivilenir, her yerde aynı sonucu verir.
+  static func path(for path: String) -> String {
+    path.hasPrefix("-") ? "./" + path : path
   }
 }
 

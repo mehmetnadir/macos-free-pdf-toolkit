@@ -43,11 +43,18 @@ final class DashFilenameSafetyTests: XCTestCase {
 
   /// `-` ile başlayan, GÖRELİ bir `file:` URL'i kurar (bkz. dosya üstü yorum — `URL(fileURLWithPath:)`
   /// bunu üretemez, o yüzden bilerek `URLComponents` kullanılıyor).
-  private func dashRelativeURL(name: String) -> URL {
+  private func dashRelativeURL(name: String) throws -> URL {
     var components = URLComponents()
     components.scheme = "file"
     components.path = name
     guard let url = components.url else { fatalError("dash URL kurulamadı: \(name)") }
+    // PLATFORM FARKI (ölçüldü 2026-09-29): bu URL'in `path`'i yerelde "-bare.pdf" dönerken CI'ın
+    // macOS 15 çalıştırıcısında BOŞ dönüyor — yani senaryo o platformda kurulamıyor ve test ürün
+    // kodunu değil kendi kurgusunu düşürüyor. Kurulamıyorsa ATLANIR (sahte kırmızı üretilmez);
+    // korumanın kendisi taşınabilir birim testleriyle ayrıca çivili (bkz. `QPDFArgumentTests`).
+    try XCTSkipUnless(
+      url.path.hasPrefix("-"),
+      "bu platformda göreli file: URL'i '-' ile başlayan bir path üretmiyor (url.path=\(url.path))")
     return url
   }
 
@@ -169,7 +176,7 @@ final class DashFilenameSafetyTests: XCTestCase {
     try FileManager.default.copyItem(at: fixture("plain"), to: absoluteInput)
 
     let file = PDFFileInfo(
-      url: dashRelativeURL(name: inputName), fileSize: 0, pageCount: 1, lockState: .none)
+      url: try dashRelativeURL(name: inputName), fileSize: 0, pageCount: 1, lockState: .none)
     let context = OperationContext(outputDirectory: dir)
     let outcome = try await withCurrentDirectory(dir) {
       try await BookmarkOperation().run(file: file, context: context) { _ in }
