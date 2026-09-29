@@ -171,8 +171,17 @@ if [ -n "${PDFTOOLS_SKIP_SMOKE:-}" ]; then
 elif [ "$(launchctl managername 2>/dev/null)" != "Aqua" ]; then
   echo "atlandı: GUI oturumu yok (SSH/CI) — pencere testi yalnız masaüstünde anlamlı"
 else
+  # YENİDEN DENEME (2026-09-29, ölçümle): bu kapı AppKit'in açılış yarışını ölçüyor ve yarış YÜK
+  # ALTINDA kaybediliyor. Ölçüldü: yük ortalaması 183 iken derleme sırasındaki tek deneme "pencere
+  # kurulmadı" dedi, hemen ardından aynı paket üç koşuda 1/1/1 pencere kurdu. Tek denemeli kapı bu
+  # yüzden yanlış alarm üretiyor ve yanlış alarm veren bekçi gerçek arızayı görünmez kılar. İki
+  # deneme + daha uzun bekleme: gerçek arıza (hiç pencere kurmama) iki denemede de sürer.
+  SMOKE_ATTEMPTS=2
+  SMOKE_ATTEMPT=1
+  WINDOWS=0
+  while [ "$SMOKE_ATTEMPT" -le "$SMOKE_ATTEMPTS" ]; do
   open -g -n "$APP"
-  sleep 6
+  sleep 8
   SMOKE_PID="$(pgrep -f "$APP/Contents/MacOS/PDFToolsApp" | head -1)"
   if [ -z "$SMOKE_PID" ]; then
     echo "HATA: uygulama açılmadı (süreç yok)" >&2
@@ -185,10 +194,17 @@ else
   fi
   WINDOWS="$(swift packaging/window-count.swift "$SMOKE_PID" 2>/dev/null || echo 0)"
   kill "$SMOKE_PID" 2>/dev/null || true
+  [ "$WINDOWS" -ge 1 ] && break
+  echo "deneme $SMOKE_ATTEMPT/$SMOKE_ATTEMPTS: pencere kurulmadı (yük: $(uptime | sed 's/.*averages: //'))" >&2
+  SMOKE_ATTEMPT=$((SMOKE_ATTEMPT + 1))
+  sleep 5
+  done
   if [ "$WINDOWS" -lt 1 ]; then
-    echo "HATA: uygulama açıldı ama HİÇ pencere kurmadı (kurtarma ağı da devreye girmedi)." >&2
-    echo "      Bkz. AppDelegate.applicationDidFinishLaunching güvenlik ağı." >&2
+    echo "HATA: uygulama $SMOKE_ATTEMPTS denemede de HİÇ pencere kurmadı (kurtarma ağı da" >&2
+    echo "      devreye girmedi). Bkz. AppDelegate.applicationDidFinishLaunching güvenlik ağı." >&2
+    echo "      Sistem yükü: $(uptime | sed 's/.*averages: //') — yük çok yüksekse (100+) bu kapı" >&2
+    echo "      yarışı kaybediyor olabilir; yük düştüğünde yeniden koş." >&2
     exit 1
   fi
-  echo "pencere sayısı: $WINDOWS ✓"
+  echo "pencere sayısı: $WINDOWS ✓ (deneme $SMOKE_ATTEMPT/$SMOKE_ATTEMPTS)"
 fi
