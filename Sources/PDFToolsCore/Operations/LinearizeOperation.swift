@@ -64,7 +64,11 @@ public struct LinearizeOperation: PDFOperation {
     ) { tempDir in
       let partial = tempDir.appendingPathComponent("output.pdf")
       progress(0)
-      let arguments = ["--linearize", file.url.path, partial.path]
+      // `QPDFArgument.path`: qpdf'in `--`'si tekil komutlarda işe yaramıyor (ölçüldü, bkz.
+      // `PDFEngine.swift`); ölçülmüş tek koruma `./` ön eki.
+      let arguments = [
+        "--linearize", QPDFArgument.path(for: file.url), QPDFArgument.path(for: partial),
+      ]
       let result = try await ProcessRunner.run(qpdf, arguments: arguments)
       guard result.status == 0 || result.status == 3 else {
         throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)

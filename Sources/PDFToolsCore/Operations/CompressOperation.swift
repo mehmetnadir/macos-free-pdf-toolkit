@@ -117,11 +117,14 @@ public struct CompressOperation: PDFOperation {
           throw OperationError.engineMissing("Ghostscript required: brew install ghostscript")
         }
         progress(0)
+        // "--": gs'in GENEL "seçenek sonu" işareti — bkz. `GhostscriptEngine.trim` yorumu, aynı
+        // ölçüm aynen geçerli (girdi adı `-` ile başlıyorsa bu OLMADAN sessizce atlanıyordu).
         let arguments = [
           "-q", "-o", partial.path,
           "-sDEVICE=pdfwrite",
           "-dPDFSETTINGS=/ebook",
           "-dBATCH", "-dNOPAUSE",
+          "--",
           file.url.path,
         ]
         let result = try await ProcessRunner.run(gs, arguments: arguments)
@@ -153,9 +156,11 @@ public struct CompressOperation: PDFOperation {
           throw OperationError.engineMissing("qpdf engine not found")
         }
         progress(0)
+        // `QPDFArgument.path` kullanılıyor — qpdf'in `--` sonlandırıcısı bu tekil komut formunda
+        // İŞE YARAMIYOR (bkz. `QPDFArgument` yorumu, `PDFEngine.swift`), ölçülmüş tek koruma `./`.
         let arguments = [
           "--object-streams=generate", "--recompress-flate", "--compression-level=9",
-          file.url.path, partial.path,
+          QPDFArgument.path(for: file.url), QPDFArgument.path(for: partial),
         ]
         let result = try await ProcessRunner.run(qpdf, arguments: arguments)
         guard result.status == 0 || result.status == 3 else {

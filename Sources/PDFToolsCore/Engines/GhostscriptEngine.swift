@@ -52,6 +52,13 @@ public struct GhostscriptEngine: TrimEngine {
       "-dUseTrimBox",
       "-dPDFSETTINGS=/prepress",
       "-dBATCH", "-dNOPAUSE",
+      // "--": gs bunu GENEL bir "seçenek sonu" işareti olarak destekliyor — `--help` bunu
+      // YAZMIYOR ama gerçek ikili ile ölçüldü (2026-09-29): `-` ile başlayan bir girdi adı `--`
+      // OLMADAN "Unknown switch .. - ignoring" ile SESSİZCE atlanıyor (0 sayfa işlenip yine de
+      // exit 0 dönüyor — en tehlikeli tür, hatasız görünen boş çıktı); `--` İLE doğru işleniyor
+      // (sayfa sayısı kaynakla birebir eşleşti). `-o`'nun kendi değeri (`output.path`) zaten
+      // güvenli: gs onu doğrudan bir sonraki argüman olarak tüketiyor, `-` ile başlasa bile.
+      "--",
       input.path,
     ]
     let result = try await ProcessRunner.run(executable, arguments: arguments) { line in

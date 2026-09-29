@@ -50,7 +50,7 @@ public enum PDFStructureCheck {
     try await TempArtifact.withPrivateDirectory(in: url.deletingLastPathComponent()) { tempDir in
       let temporary = tempDir.appendingPathComponent("repaired.pdf")
       let fm = FileManager.default
-      let result = try await ProcessRunner.run(qpdf, arguments: [url.path, temporary.path])
+      let result = try await ProcessRunner.run(qpdf, arguments: [QPDFArgument.path(for: url), QPDFArgument.path(for: temporary)])
       guard result.status == 0 || result.status == 3, fm.fileExists(atPath: temporary.path) else {
         return
       }
@@ -59,7 +59,7 @@ public enum PDFStructureCheck {
   }
 
   public static func inspect(_ url: URL, qpdf: URL) async throws -> Result {
-    let result = try await ProcessRunner.run(qpdf, arguments: ["--check", url.path])
+    let result = try await ProcessRunner.run(qpdf, arguments: ["--check", QPDFArgument.path(for: url)])
     return parse(output: result.stdout + "\n" + result.stderr, status: result.status)
   }
 

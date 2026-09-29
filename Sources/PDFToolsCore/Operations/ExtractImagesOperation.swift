@@ -70,7 +70,12 @@ public struct ExtractImagesOperation: PDFOperation {
     ) { partialDir in
       progress(0)
       let result = try await ProcessRunner.run(
-        pdfcpu, arguments: ["images", "extract", file.url.path, partialDir.path])
+        pdfcpu,
+        // `--conf disable` + `--`: bkz. `PDFEngine.swift` (`PDFCPUArgument`) — pdfcpu kullanıcının
+        // küresel config'ini okuyor ve v0.16.0 eski şemada HER komutu reddediyor; `--` ise Cobra
+        // ayrıştırıcısında gerçek seçenek-sonu işareti, `-` ile başlayan dosya adını korur.
+        arguments: ["images", "extract"] + PDFCPUArgument.disableConfig
+          + ["--", file.url.path, partialDir.path])
       guard result.status == 0 else {
         throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
       }

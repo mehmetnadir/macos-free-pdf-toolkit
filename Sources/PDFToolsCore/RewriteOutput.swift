@@ -92,11 +92,12 @@ public enum RewriteOutput {
 
   /// Sayfa sayısını envanterden BAĞIMSIZ ölçer (`qpdf --show-npages`). Fırlatmaz: ölçülemediğinde
   /// `nil` döner ve kararı çağırana bırakır (çağıran bunu "doğrulanamadı" sayıp fırlatıyor).
-  /// `--` sonlandırıcısı bilinçli: adı `-` ile başlayan bir dosya bayrak sanılmasın.
+  /// Yol `QPDFArgument.path` ile veriliyor: qpdf'in `--`'si tekil komutlarda İŞE YARAMIYOR
+  /// (ölçüldü, bkz. `PDFEngine.swift`), ölçülmüş tek koruma `./` ön eki.
   private static func pageCount(of url: URL, qpdf: URL) async -> Int? {
     guard
       let result = try? await ProcessRunner.run(
-        qpdf, arguments: ["--show-npages", "--", url.path]),
+        qpdf, arguments: ["--show-npages", QPDFArgument.path(for: url)]),
       result.status == 0 || result.status == 3
     else { return nil }
     return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))

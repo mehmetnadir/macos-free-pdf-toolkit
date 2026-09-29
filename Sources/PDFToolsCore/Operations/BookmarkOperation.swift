@@ -92,7 +92,14 @@ public struct BookmarkOperation: PDFOperation {
       let partial = tempDir.appendingPathComponent("export.json")
       progress(0)
       let result = try await ProcessRunner.run(
-        pdfcpu, arguments: ["bookmarks", "export", file.url.path, partial.path])
+        pdfcpu,
+        // `--conf disable`: pdfcpu kullanıcının `~/Library/Application Support/pdfcpu/config.yml`
+        // dosyasını okuyor; v0.16.0 eski şemayı görünce HER komutu reddediyor (ölçüldü 29.09).
+        // `--`: Cobra ayrıştırıcısı bunu GENEL seçenek-sonu işareti olarak destekliyor, adı `-` ile
+        // başlayan dosya bu olmadan "unknown shorthand flag" alıyor (qpdf'in aksine — bkz.
+        // `QPDFArgument`). Sıra önemli: `--conf disable` sonlandırıcıdan ÖNCE gelir.
+        arguments: ["bookmarks", "export"] + PDFCPUArgument.disableConfig
+          + ["--", file.url.path, partial.path])
       guard result.status == 0 else {
         let combined = (result.stderr + result.stdout).lowercased()
         if combined.contains("no bookmarks available") {
@@ -158,9 +165,8 @@ public struct BookmarkOperation: PDFOperation {
       // bayrak olmadan pdfcpu "existing bookmarks" ile başarısız oluyor (ölçüldü).
       let result = try await ProcessRunner.run(
         pdfcpu,
-        arguments: [
-          "bookmarks", "import", "--replace", file.url.path, jsonURL.path, partial.path,
-        ])
+        arguments: ["bookmarks", "import", "--replace"] + PDFCPUArgument.disableConfig
+          + ["--", file.url.path, jsonURL.path, partial.path])
       guard result.status == 0 else {
         throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
       }
