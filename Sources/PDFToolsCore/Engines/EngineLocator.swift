@@ -35,12 +35,24 @@ public enum EngineLocator {
     guard stat(dir.path, &info) == 0 else { return "bulunamadı" }
     guard (info.st_mode & S_IFMT) == S_IFDIR else { return "dizin değil" }
     if info.st_mode & S_IWOTH != 0 { return "dünya-yazılabilir" }
+    // GRUP-YAZILABİLİR de reddedilir (2026-09-29 bağımsız inceleme bulgusu): tehdit modeli "çok
+    // kullanıcılı Mac" olduğu için, bir kurulum betiğinin `chmod 775` bıraktığı ve grubu
+    // paylaşılan (`staff`/`admin`) bir dizine aynı gruptaki BAŞKA bir hesap sahte `qpdf`
+    // koyabilir; sahiplik ve dünya-yazılabilirlik denetimlerinin ikisi de bunu geçiriyordu.
+    if info.st_mode & S_IWGRP != 0 { return "grup-yazılabilir" }
     let euid = geteuid()
     if info.st_uid != euid && info.st_uid != 0 { return "başka bir kullanıcıya ait" }
     return nil
   }
 
+  /// Aynı mesajın tekrar basılmasını engeller. `searchDirectories()` her `find(...)` çağrısında
+  /// koşuyor (`availableEngines()` tek başına ikisini çağırıyor); toplu işte aynı güvenlik notu
+  /// dosya başına defalarca stderr'e düşüyordu. Sürekli yinelenen alarm gerçek arızayı görünmez
+  /// kılar (bkz. "Bekçi Güven Gate") — not BİR KEZ söylenir, dizi de sınırsız büyümez.
+  nonisolated(unsafe) private static var reportedMessages: Set<String> = []
+
   private static func report(_ message: String) {
+    guard reportedMessages.insert(message).inserted else { return }
     securityNotices.append(message)
     FileHandle.standardError.write(Data((message + "\n").utf8))
   }

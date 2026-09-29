@@ -100,6 +100,10 @@ public enum OperationError: Error, LocalizedError, Equatable {
   /// açılamayıp sessizce atlanmış olabilir. Çıktı silinir.
   case redrawLostPages(before: Int, after: Int)
 
+  /// Sayfa bütünlüğü ÖLÇÜLEMEDİ (envanter de, sayfa sayısı da okunamadı). "Ölçemedim" ile "sorun
+  /// yok" ayrı şeylerdir; bu yüzden sessizce geçmek yerine fırlatılır (2026-09-29 inceleme).
+  case pageIntegrityUnverifiable(String)
+
   public var errorDescription: String? {
     switch self {
     case .unreadable: return "File is not a valid PDF"
@@ -132,6 +136,8 @@ public enum OperationError: Error, LocalizedError, Equatable {
     case .redrawLostPages(let before, let after):
       return "Output has fewer pages than the source (\(before) → \(after)) — "
         + "a page failed to render, output deleted"
+    case .pageIntegrityUnverifiable(let detail):
+      return "Page integrity could not be verified — \(detail)"
     }
   }
 }

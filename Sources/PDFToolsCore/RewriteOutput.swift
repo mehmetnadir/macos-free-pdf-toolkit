@@ -23,9 +23,24 @@ public enum RewriteOutput {
     /// Yeniden çizmenin kaynağa göre değiştirdikleri (boşsa içerik envanteri korunmuş).
     public let changes: [String]
 
-    /// Sonuç satırına eklenecek tek cümle (değişiklik yoksa `nil`).
+    /// Ölçülemeyen eksenler. Boş envanter + boş uyarı = "ölçtüm, temiz"; envanter okunamadıysa
+    /// buraya bir cümle düşer, çünkü "ölçemedim" ile "sorun yok" AYNI ŞEY DEĞİLDİR (2026-09-29
+    /// bağımsız inceleme bulgusu: eski kod ikisini de boş raporla aynı gösteriyordu).
+    public let warnings: [String]
+
+    public init(changes: [String], warnings: [String] = []) {
+      self.changes = changes
+      self.warnings = warnings
+    }
+
+    /// Sonuç satırına eklenecek cümle(ler) (söylenecek bir şey yoksa `nil`).
     public var note: String? {
-      changes.isEmpty ? nil : "redrawing changed the file: " + changes.joined(separator: " · ")
+      var parts: [String] = []
+      if !changes.isEmpty {
+        parts.append("redrawing changed the file: " + changes.joined(separator: " · "))
+      }
+      parts.append(contentsOf: warnings)
+      return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
   }
 
@@ -43,7 +58,26 @@ public enum RewriteOutput {
     }
     let before = try? await PDFContentInventory.read(source, qpdf: qpdf)
     let after = try? await PDFContentInventory.read(output, qpdf: qpdf)
-    guard let before, let after else { return Report(changes: []) }
+    guard let before, let after else {
+      // FAIL-OPEN DELİĞİ KAPATILDI (2026-09-29 bağımsız inceleme): envanter okunamadığında eski
+      // kod `Report(changes: [])` ile SESSİZCE dönüyordu ve altındaki sayfa-sayısı kapısı HİÇ
+      // çalışmıyordu — yani `SearchablePDFOperation`/`QRAddOperation` gibi kendi sayfa kontrolü
+      // OLMAYAN işlemlerde eksik sayfalı çıktı bu delikten geri sızabilirdi. Envanter (üstveri
+      // kıyası) pahalı ve kırılgan; sayfa SAYISI ise `--show-npages` ile ucuz ve bağımsız
+      // ölçülebiliyor. Bu yüzden envanter düşerse kapı kapanmaz, DAHA BASİT bir ölçümle sürer;
+      // o da ölçülemezse "doğrulanamadı" diye FIRLATIR, sessizce geçmez.
+      let sourcePages = await Self.pageCount(of: source, qpdf: qpdf)
+      let outputPages = await Self.pageCount(of: output, qpdf: qpdf)
+      guard let sourcePages, let outputPages else {
+        throw OperationError.pageIntegrityUnverifiable(
+          "content inventory and page count could both not be read")
+      }
+      guard sourcePages == outputPages else {
+        throw OperationError.redrawLostPages(before: sourcePages, after: outputPages)
+      }
+      return Report(
+        changes: [], warnings: ["content inventory could not be compared (page count verified)"])
+    }
     // SERT KAPI (2026-09-29, sessiz-hata denetimi): `SearchablePDFOperation`/`OCROperation` gibi
     // sayfa sayfa yeniden çizen işlemlerde bir sayfa açılamayıp döngü sessizce `continue` ederse
     // çıktı EKSİK SAYFALI oluyordu ve bunu yakalayan hiçbir kapı yoktu (yalnız `PageNumberOperation`/
@@ -54,5 +88,17 @@ public enum RewriteOutput {
       throw OperationError.redrawLostPages(before: before.pageCount, after: after.pageCount)
     }
     return Report(changes: after.differences(from: before))
+  }
+
+  /// Sayfa sayısını envanterden BAĞIMSIZ ölçer (`qpdf --show-npages`). Fırlatmaz: ölçülemediğinde
+  /// `nil` döner ve kararı çağırana bırakır (çağıran bunu "doğrulanamadı" sayıp fırlatıyor).
+  /// `--` sonlandırıcısı bilinçli: adı `-` ile başlayan bir dosya bayrak sanılmasın.
+  private static func pageCount(of url: URL, qpdf: URL) async -> Int? {
+    guard
+      let result = try? await ProcessRunner.run(
+        qpdf, arguments: ["--show-npages", "--", url.path]),
+      result.status == 0 || result.status == 3
+    else { return nil }
+    return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
   }
 }

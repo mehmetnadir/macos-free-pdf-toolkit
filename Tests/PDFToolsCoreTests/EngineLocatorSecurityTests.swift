@@ -105,6 +105,37 @@ final class EngineLocatorSecurityTests: XCTestCase {
       "root-sahipli, dünya-yazılabilir olmayan sistem dizini güvenli sayılmalı")
   }
 
+  /// GRUP-YAZILABİLİR dizin de reddedilir (2026-09-29 inceleme bulgusu). Sahiplik denetimi
+  /// (`st_uid == euid`) ve dünya-yazılabilirlik denetimi bu dizini GEÇİRİYORDU; oysa aynı gruptaki
+  /// başka bir yerel hesap içine sahte bir motor koyabilir — parola alt süreç argümanında geçtiği
+  /// için tam olarak önlenmek istenen sızıntı.
+  func testGroupWritableDirectoryIsRejected() throws {
+    let dir = try makeTempDirectory(mode: 0o775)
+    try plantFakeExecutable(named: "qpdf", in: dir)
+
+    XCTAssertEqual(EngineLocator.untrustedReason(for: dir), "grup-yazılabilir")
+
+    setenv("PDFTOOLS_BIN_DIR", dir.path, 1)
+    defer { unsetenv("PDFTOOLS_BIN_DIR") }
+
+    XCTAssertFalse(
+      EngineLocator.searchDirectories().contains(dir),
+      "grup-yazılabilir dizin arama listesine GİRMEMELİ")
+  }
+
+  /// Aynı güvenlik notu TEKRAR TEKRAR basılmaz. `searchDirectories()` her motor aramasında
+  /// koşuyor; toplu işte aynı satırın N kez düşmesi gerçek sinyali gürültüye boğar.
+  func testSameNoticeIsReportedOnlyOnce() throws {
+    let dir = try makeTempDirectory(mode: 0o777)
+    setenv("PDFTOOLS_BIN_DIR", dir.path, 1)
+    defer { unsetenv("PDFTOOLS_BIN_DIR") }
+
+    for _ in 0..<5 { _ = EngineLocator.searchDirectories() }
+
+    let matching = EngineLocator.securityNotices.filter { $0.contains(dir.path) }
+    XCTAssertEqual(matching.count, 1, "aynı not yalnız BİR kez kayda geçmeli: \(matching)")
+  }
+
   // MARK: - Meşru kullanımın bozulmadığı kanıtı
 
   /// Kullanıcının KENDİ sahip olduğu, dünya-yazılabilir OLMAYAN bir dizin (Homebrew formülünün
