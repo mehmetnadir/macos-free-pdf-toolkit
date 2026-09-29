@@ -2,17 +2,59 @@ import Foundation
 
 /// Motor ikililerini bulur. Arama sırası:
 /// 1. `extraDirectories` (testler / programatik)
-/// 2. `PDFTOOLS_BIN_DIR` ortam değişkeni
+/// 2. `PDFTOOLS_BIN_DIR` ortam değişkeni (yalnız GÜVENİLİR bir dizinse — bkz. `untrustedReason(for:)`)
 /// 3. Uygulama paketi: `Contents/Resources/bin`
 /// 4. Geliştirme: çalıştırılabilirden yukarı doğru `vendor/bin`
 /// 5. Homebrew yolları
 public enum EngineLocator {
   nonisolated(unsafe) public static var extraDirectories: [URL] = []
 
+  /// Motor konumu ile ilgili güvenlik/görünürlük notları — en yeni en sonda. Testler bu listeyi
+  /// okuyarak "sessizce dış ikili kullanıldı/reddedildi" olmadığını kanıtlar; ayrıca her not
+  /// stderr'e de yazılır (CLI/log görünürlüğü — bkz. dosya üstü güvenlik notu).
+  ///
+  /// Gerekçe (denetim bulgusu, 2026-09-29): `PDFTOOLS_BIN_DIR` daha önce hiçbir kısıt/kayıt
+  /// olmadan okunuyordu. Bu değişkeni etkileyebilen biri (paylaşılan oturum ortamı, shell
+  /// profili, `launchctl setenv`) sahte bir `qpdf`/`pdfcpu` gösterip parolayı (`--password=`
+  /// argümanda geçiyor) ve dosya içeriğini ele geçirebilirdi. Körlemesine `#if DEBUG` ile
+  /// kapatmak ÖLÇÜLDÜ: tek gerçek bağımlılık `Formula/pdftools.rb` — Homebrew CLI dağıtımı,
+  /// paket kaynağı olmadığı için Release ikilisine `PDFTOOLS_BIN_DIR=${HOMEBREW_PREFIX}/bin`
+  /// sarmalıyor; kapatmak bu dağıtımı kırardı. Bunun yerine dizin GÜVENİLİRLİK denetiminden
+  /// geçer: dünya-yazılabilir DEĞİL ve sahibi ya çalıştıran kullanıcı ya da root olmalı.
+  nonisolated(unsafe) public private(set) static var securityNotices: [String] = []
+
+  /// `dir` güvenilmezse reddetme gerekçesini döner, güvenilirse `nil`.
+  /// Güvenli sayılan yol: kullanıcının KENDİ yazabildiği ama BAŞKASININ yazamadığı bir dizin.
+  /// - Dünya-yazılabilir dizinler (`/tmp` gibi, sticky bit içerik oluşturmayı ENGELLEMEZ)
+  ///   reddedilir.
+  /// - Başka bir hesaba ait dizinler reddedilir (root hariç — sistem yolları için); aksi halde
+  ///   saldırgan KENDİ sahip olduğu, dünya-yazılabilir OLMAYAN bir dizini paylaşılan oturum
+  ///   ortamıyla (`launchctl setenv`) işaret edebilirdi.
+  static func untrustedReason(for dir: URL) -> String? {
+    var info = stat()
+    guard stat(dir.path, &info) == 0 else { return "bulunamadı" }
+    guard (info.st_mode & S_IFMT) == S_IFDIR else { return "dizin değil" }
+    if info.st_mode & S_IWOTH != 0 { return "dünya-yazılabilir" }
+    let euid = geteuid()
+    if info.st_uid != euid && info.st_uid != 0 { return "başka bir kullanıcıya ait" }
+    return nil
+  }
+
+  private static func report(_ message: String) {
+    securityNotices.append(message)
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+  }
+
   public static func searchDirectories() -> [URL] {
     var dirs = extraDirectories
     if let env = ProcessInfo.processInfo.environment["PDFTOOLS_BIN_DIR"], !env.isEmpty {
-      dirs.append(URL(fileURLWithPath: env))
+      let dir = URL(fileURLWithPath: env)
+      if let reason = untrustedReason(for: dir) {
+        report("pdftools: PDFTOOLS_BIN_DIR reddedildi (\(reason)): \(env)")
+      } else {
+        dirs.append(dir)
+        report("pdftools: motor paket dışından yüklendi (PDFTOOLS_BIN_DIR): \(env)")
+      }
     }
     if let resources = Bundle.main.resourceURL {
       dirs.append(resources.appendingPathComponent("bin"))
