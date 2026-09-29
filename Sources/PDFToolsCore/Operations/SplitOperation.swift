@@ -68,16 +68,17 @@ public struct SplitOperation: PDFOperation {
 
     let mode = context.options[Self.modeOptionID] ?? "each"
     let outputDir = OutputNaming.uniqueDirectory(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let partialDir = outputDir.deletingLastPathComponent()
-      .appendingPathComponent(".\(outputDir.lastPathComponent).part", isDirectory: true)
     let fm = FileManager.default
-    try? fm.removeItem(at: partialDir)
-    try fm.createDirectory(at: partialDir, withIntermediateDirectories: true)
-
     let stem = file.url.deletingPathExtension().lastPathComponent
-    progress(0)
-    var outputs: [URL] = []
-    do {
+
+    // GÜVENLİK: qpdf parçaları KENDİSİ oluşturuyor (subprocess) — `TempArtifact.
+    // withPrivateDirectory` kullanılıyor (bkz. o tipin gerekçesi); önceden öngörülebilir
+    // `.<klasör>.part/` adı yerine benzersiz/tek-kullanıcılı bir dizin.
+    return try await TempArtifact.withPrivateDirectory(
+      in: outputDir.deletingLastPathComponent()
+    ) { partialDir in
+      progress(0)
+      var outputs: [URL] = []
       switch mode {
       case "half":
         let firstCount = Int((Double(file.pageCount) / 2).rounded(.up))
@@ -106,25 +107,21 @@ public struct SplitOperation: PDFOperation {
           .filter { $0.pathExtension.lowercased() == "pdf" }
           .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
       }
-    } catch is CancellationError {
-      try? fm.removeItem(at: partialDir)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partialDir)
-      throw error
-    }
-    progress(0.95)
+      progress(0.95)
 
-    // Kanıt: en az bir parça, hiçbiri 0 sayfa değil, toplam == kaynağın sayfa sayısı.
-    guard SplitVerification.verify(outputs, expectedTotal: file.pageCount) else {
-      try? fm.removeItem(at: partialDir)
-      throw OperationError.splitVerificationFailed
-    }
+      // Kanıt: en az bir parça, hiçbiri 0 sayfa değil, toplam == kaynağın sayfa sayısı.
+      guard SplitVerification.verify(outputs, expectedTotal: file.pageCount) else {
+        throw OperationError.splitVerificationFailed
+      }
 
-    try fm.moveItem(at: partialDir, to: outputDir)
-    progress(1)
-    let finalOutputs = outputs.map { outputDir.appendingPathComponent($0.lastPathComponent) }
-    return .produced(urls: finalOutputs, note: nil)
+      try fm.moveItem(at: partialDir, to: outputDir)
+      // Nihai klasörün DAVRANIŞI değişmemeli: `partialDir` güvenlik için `0700` (mkdir) ile
+      // açılmıştı, ama görünür/paylaşılan çıktı klasörü eskisi gibi standart (0755) izinli olmalı.
+      try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: outputDir.path)
+      progress(1)
+      let finalOutputs = outputs.map { outputDir.appendingPathComponent($0.lastPathComponent) }
+      return .produced(urls: finalOutputs, note: nil)
+    }
   }
 
   private func extractRange(qpdf: URL, input: URL, range: String, output: URL) async throws {

@@ -140,55 +140,45 @@ public struct WatermarkRemoveOperation: PDFOperation {
     progress(0.3)
 
     let output = OutputNaming.uniqueURL(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
-    do {
-      try await Self.emptyStream(candidate: chosen, in: file.url, output: partial, qpdfExecutable: qpdf)
-    } catch is CancellationError {
-      try? fm.removeItem(at: partial)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
-    progress(0.7)
+    // GÜVENLİK: qpdf çıktıyı KENDİSİ oluşturuyor (subprocess) — `TempArtifact.withPrivateDirectory`
+    // kullanılıyor (bkz. o tipin gerekçesi).
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
+      try await Self.emptyStream(
+        candidate: chosen, in: file.url, output: partial, qpdfExecutable: qpdf)
+      progress(0.7)
 
-    // Kanıt 1: hedef nesnenin akışı çıktıda GERÇEKTEN boşalmış mı — `note`/kutu üstverisine değil,
-    // aynı metin çıkarımını çıktı üzerinde TEKRAR çalıştırıp bak (bkz. `TrimVerification`'ın
-    // "kutuya değil render'a güven" ilkesinin metin karşılığı, `WatermarkRemoveVerification`).
-    do {
+      // Kanıt 1: hedef nesnenin akışı çıktıda GERÇEKTEN boşalmış mı — `note`/kutu üstverisine
+      // değil, aynı metin çıkarımını çıktı üzerinde TEKRAR çalıştırıp bak (bkz.
+      // `TrimVerification`'ın "kutuya değil render'a güven" ilkesinin metin karşılığı,
+      // `WatermarkRemoveVerification`).
       let stillThere = try await !WatermarkRemoveVerification.textReallyRemoved(
         candidate: chosen, output: partial, qpdfExecutable: qpdf)
       guard !stillThere else {
-        try? fm.removeItem(at: partial)
         throw WatermarkRemoveError.verificationFailed(
           reason: "the target object's text is still present")
       }
-    } catch let error as WatermarkRemoveError {
-      throw error
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
+      progress(0.85)
+
+      // Kanıt 2: sayfa sayısı korunmuş + filigran BÖLGESİ DIŞINDA ilk sayfa piksel piksel aynı.
+      let pixelResult = WatermarkRemoveVerification.verify(
+        source: file.url, output: partial, candidate: chosen)
+      guard pixelResult.verdict != .failed else {
+        throw WatermarkRemoveError.verificationFailed(reason: pixelResult.reason)
+      }
+
+      try fm.moveItem(at: partial, to: output)
+      progress(1)
+
+      let textPart = chosen.extractedText.isEmpty ? "" : " '\(chosen.extractedText)'"
+      let note =
+        "Removed\(textPart), found on \(chosen.pageCount) of \(chosen.totalPageCount) pages"
+      return .produced(urls: [output], note: note)
     }
-    progress(0.85)
-
-    // Kanıt 2: sayfa sayısı korunmuş + filigran BÖLGESİ DIŞINDA ilk sayfa piksel piksel aynı.
-    let pixelResult = WatermarkRemoveVerification.verify(source: file.url, output: partial, candidate: chosen)
-    guard pixelResult.verdict != .failed else {
-      try? fm.removeItem(at: partial)
-      throw WatermarkRemoveError.verificationFailed(reason: pixelResult.reason)
-    }
-
-    try fm.moveItem(at: partial, to: output)
-    progress(1)
-
-    let textPart = chosen.extractedText.isEmpty ? "" : " '\(chosen.extractedText)'"
-    let note =
-      "Removed\(textPart), found on \(chosen.pageCount) of \(chosen.totalPageCount) pages"
-    return .produced(urls: [output], note: note)
   }
 
   // MARK: - Aday tespiti (herkese açık API — arayüz onay kartı için kullanır)
@@ -340,10 +330,13 @@ public struct WatermarkRemoveOperation: PDFOperation {
         ["obj:\(candidate.objectReference)": ["stream": ["data": "", "dict": snapshot.dict]]],
       ]
     ]
-    let updateData = try JSONSerialization.data(withJSONObject: update)
-    let updateFile = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(UUID().uuidString).watermarkupdate.json")
-    try updateData.write(to: updateFile)
+    // GÜVENLİK: Swift'in KENDİSİ veri yazıyor (küçük JSON) — `TempArtifact.writeExclusive` ile
+    // `O_EXCL|O_NOFOLLOW|O_CREAT` korumalı, benzersiz bir dosyaya yazılıyor (bkz. o tipin
+    // gerekçesi). Önceki sürüm zaten `UUID()` kullanıyordu ama düz `Data.write(to:)` ile — ortak
+    // yardımcıya taşınarak sembolik-bağ koruması da eklendi.
+    let updateFile = try TempArtifact.writeExclusive(
+      try JSONSerialization.data(withJSONObject: update),
+      in: output.deletingLastPathComponent(), suffix: ".watermarkupdate.json")
     defer { try? FileManager.default.removeItem(at: updateFile) }
 
     let result = try await ProcessRunner.run(

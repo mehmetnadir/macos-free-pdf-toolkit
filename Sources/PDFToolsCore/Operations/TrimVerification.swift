@@ -89,82 +89,85 @@ public enum TrimVerification {
     guard !boxes.isEmpty else { return Result(residuePercent: 100, verdict: .failed) }
 
     let editor = QPDFPageEditor(executable: qpdf)
-    let enlarged = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.lastPathComponent).band.pdf")
-    let fm = FileManager.default
-    try? fm.removeItem(at: enlarged)
-    defer { try? fm.removeItem(at: enlarged) }
 
-    let ids = try await editor.pageObjectIDs(of: output)
-    let (header, objects) = try await editor.pageObjects(of: output, ids: ids)
-    var changed: [String: Any] = [:]
-    for (index, id) in ids.enumerated() {
-      guard let band = bleeds[index + 1],
-        var page = QPDFPageEditor.dictionary(for: id, in: objects)
-      else { continue }
-      // +1 pt: bandın kenarı render sınırına DEĞMESİN, yoksa ölçümün kendisi kırpılır.
-      let big = band.insetBy(dx: -1, dy: -1)
-      page["/MediaBox"] = QPDFPageEditor.jsonBox(big)
-      page["/CropBox"] = QPDFPageEditor.jsonBox(big)
-      changed["obj:\(id)"] = ["value": page]
-    }
-    guard !changed.isEmpty else { return Result(residuePercent: 100, verdict: .failed) }
-    try await editor.apply(update: ["qpdf": [header, changed]], to: output, output: enlarged)
+    // `enlarged` qpdf'in KENDİSİ tarafından yazılıyor (subprocess) — `TempArtifact.
+    // withPrivateDirectory` ile öngörülemez, tek kullanıcıya ait bir dizin içinde üretilir (bkz.
+    // o tipin gerekçesi). Dizin `perform` bitince (başarı/hata fark etmeksizin) silinir.
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let enlarged = tempDir.appendingPathComponent("band.pdf")
+      let ids = try await editor.pageObjectIDs(of: output)
+      let (header, objects) = try await editor.pageObjects(of: output, ids: ids)
+      var changed: [String: Any] = [:]
+      for (index, id) in ids.enumerated() {
+        guard let band = bleeds[index + 1],
+          var page = QPDFPageEditor.dictionary(for: id, in: objects)
+        else { continue }
+        // +1 pt: bandın kenarı render sınırına DEĞMESİN, yoksa ölçümün kendisi kırpılır.
+        let big = band.insetBy(dx: -1, dy: -1)
+        page["/MediaBox"] = QPDFPageEditor.jsonBox(big)
+        page["/CropBox"] = QPDFPageEditor.jsonBox(big)
+        changed["obj:\(id)"] = ["value": page]
+      }
+      guard !changed.isEmpty else { return Result(residuePercent: 100, verdict: .failed) }
+      try await editor.apply(update: ["qpdf": [header, changed]], to: output, output: enlarged)
 
-    guard let enlargedDocument = CGPDFDocument(enlarged as CFURL) else {
-      return Result(residuePercent: 100, verdict: .failed)
-    }
+      guard let enlargedDocument = CGPDFDocument(enlarged as CFURL) else {
+        return Result(residuePercent: 100, verdict: .failed)
+      }
 
-    var bandPixels = 0
-    var inkPixels = 0
-    for (pageNumber, originalBox) in boxes {
-      guard let page = enlargedDocument.page(at: pageNumber) else { continue }
-      let surface = page.getBoxRect(.mediaBox)
-      let scale = renderDPI / 72.0
-      let width = max(1, Int((surface.width * scale).rounded(.up)))
-      let height = max(1, Int((surface.height * scale).rounded(.up)))
-      guard
-        let ctx = CGContext(
-          data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-          space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
-      else { continue }
-      // Beyaz zemin: kesim payında hiçbir şey kalmadıysa bant tamamen beyaz kalır.
-      ctx.setFillColor(gray: 1, alpha: 1)
-      ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
-      ctx.scaleBy(x: scale, y: scale)
-      ctx.translateBy(x: -surface.origin.x, y: -surface.origin.y)
-      ctx.drawPDFPage(page)
-      guard let data = ctx.data else { continue }
-      let bytesPerRow = ctx.bytesPerRow
-      let buffer = data.bindMemory(to: UInt8.self, capacity: bytesPerRow * height)
+      var bandPixels = 0
+      var inkPixels = 0
+      for (pageNumber, originalBox) in boxes {
+        guard let page = enlargedDocument.page(at: pageNumber) else { continue }
+        let surface = page.getBoxRect(.mediaBox)
+        let scale = renderDPI / 72.0
+        let width = max(1, Int((surface.width * scale).rounded(.up)))
+        let height = max(1, Int((surface.height * scale).rounded(.up)))
+        guard
+          let ctx = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+        else { continue }
+        // Beyaz zemin: kesim payında hiçbir şey kalmadıysa bant tamamen beyaz kalır.
+        ctx.setFillColor(gray: 1, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.translateBy(x: -surface.origin.x, y: -surface.origin.y)
+        ctx.drawPDFPage(page)
+        guard let data = ctx.data else { continue }
+        let bytesPerRow = ctx.bytesPerRow
+        let buffer = data.bindMemory(to: UInt8.self, capacity: bytesPerRow * height)
 
-      let inner = originalBox.insetBy(dx: -antialiasGuardPoints, dy: -antialiasGuardPoints)
-      let outer = bleeds[pageNumber] ?? originalBox
-      for row in 0..<height {
-        // Satır 0 = görüntünün ÜSTÜ (en yüksek kullanıcı-uzayı y'si); bu proje içinde ölçülüp
-        // doğrulandı (2026-09-07).
-        let userY = surface.maxY - (Double(row) + 0.5) / Double(scale)
-        let rowStart = row * bytesPerRow
-        for column in 0..<width {
-          let userX = surface.origin.x + (Double(column) + 0.5) / Double(scale)
-          let point = CGPoint(x: userX, y: userY)
-          guard outer.contains(point), !inner.contains(point) else { continue }
-          bandPixels += 1
-          if buffer[rowStart + column] < inkLumaThreshold { inkPixels += 1 }
+        let inner = originalBox.insetBy(dx: -antialiasGuardPoints, dy: -antialiasGuardPoints)
+        let outer = bleeds[pageNumber] ?? originalBox
+        for row in 0..<height {
+          // Satır 0 = görüntünün ÜSTÜ (en yüksek kullanıcı-uzayı y'si); bu proje içinde ölçülüp
+          // doğrulandı (2026-09-07).
+          let userY = surface.maxY - (Double(row) + 0.5) / Double(scale)
+          let rowStart = row * bytesPerRow
+          for column in 0..<width {
+            let userX = surface.origin.x + (Double(column) + 0.5) / Double(scale)
+            let point = CGPoint(x: userX, y: userY)
+            guard outer.contains(point), !inner.contains(point) else { continue }
+            bandPixels += 1
+            if buffer[rowStart + column] < inkLumaThreshold { inkPixels += 1 }
+          }
         }
       }
-    }
 
-    let percent = bandPixels == 0 ? 0 : Double(inkPixels) / Double(bandPixels) * 100
-    let verdict: Verdict
-    if percent < cleanThreshold {
-      verdict = .clean
-    } else if percent <= failedThreshold {
-      verdict = .partial
-    } else {
-      verdict = .failed
+      let percent = bandPixels == 0 ? 0 : Double(inkPixels) / Double(bandPixels) * 100
+      let verdict: Verdict
+      if percent < cleanThreshold {
+        verdict = .clean
+      } else if percent <= failedThreshold {
+        verdict = .partial
+      } else {
+        verdict = .failed
+      }
+      return Result(residuePercent: percent, verdict: verdict)
     }
-    return Result(residuePercent: percent, verdict: verdict)
   }
 
 }

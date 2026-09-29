@@ -40,50 +40,45 @@ public struct RepairOperation: PDFOperation {
     progress(0.2)
 
     let output = OutputNaming.uniqueURL(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
-    do {
+    // GÜVENLİK: qpdf çıktıyı KENDİSİ oluşturuyor (subprocess) — `TempArtifact.withPrivateDirectory`
+    // kullanılıyor (bkz. o tipin gerekçesi).
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
       // Bilerek `--replace-input` DEĞİL: kaynağa dokunulmaz, güvenli/geri dönülebilir bir yeniden
       // yazma yapılır (bkz. dosya üstü yorum).
       let result = try await ProcessRunner.run(qpdf, arguments: [file.url.path, partial.path])
       guard result.status == 0 || result.status == 3 else {
         throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
       }
-    } catch is CancellationError {
-      try? fm.removeItem(at: partial)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
-    progress(0.7)
+      progress(0.7)
 
-    guard let doc = CGPDFDocument(partial as CFURL), doc.numberOfPages == file.pageCount else {
-      try? fm.removeItem(at: partial)
-      throw RepairError.verificationFailed("page count wasn't preserved")
-    }
+      guard let doc = CGPDFDocument(partial as CFURL), doc.numberOfPages == file.pageCount else {
+        throw RepairError.verificationFailed("page count wasn't preserved")
+      }
 
-    // Kanıt: onarım GERÇEKTEN uyarı/hata sayısını azaltmış mı — motorun sessizce başarılı dönmesine
-    // güvenilmiyor.
-    let after = try await RepairVerification.diagnose(qpdf: qpdf, url: partial)
-    guard RepairVerification.improved(before: before, after: after) else {
-      try? fm.removeItem(at: partial)
-      throw RepairError.verificationFailed(
-        "warning/error count didn't decrease (\(before.issueLineCount) → \(after.issueLineCount))")
-    }
+      // Kanıt: onarım GERÇEKTEN uyarı/hata sayısını azaltmış mı — motorun sessizce başarılı
+      // dönmesine güvenilmiyor.
+      let after = try await RepairVerification.diagnose(qpdf: qpdf, url: partial)
+      guard RepairVerification.improved(before: before, after: after) else {
+        throw RepairError.verificationFailed(
+          "warning/error count didn't decrease (\(before.issueLineCount) → \(after.issueLineCount))"
+        )
+      }
 
-    try fm.moveItem(at: partial, to: output)
-    progress(1)
-    // Ham uyarı/hata SAYISI kullanıcıya bir şey ifade etmez (bkz. görev tanımı) — asıl karar
-    // noktası hepsi mi düzeldi yoksa bir kısmı mı kaldı.
-    let note =
-      after.issueLineCount == 0
-      ? "File structure repaired"
-      : "File structure repaired — some issues could not be fixed automatically"
-    return .produced(urls: [output], note: note)
+      try fm.moveItem(at: partial, to: output)
+      progress(1)
+      // Ham uyarı/hata SAYISI kullanıcıya bir şey ifade etmez (bkz. görev tanımı) — asıl karar
+      // noktası hepsi mi düzeldi yoksa bir kısmı mı kaldı.
+      let note =
+        after.issueLineCount == 0
+        ? "File structure repaired"
+        : "File structure repaired — some issues could not be fixed automatically"
+      return .produced(urls: [output], note: note)
+    }
   }
 }
 

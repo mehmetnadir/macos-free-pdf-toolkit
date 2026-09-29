@@ -43,17 +43,19 @@ public enum PDFStructureCheck {
   /// düzelir. Sayfaları zaten yeniden çizen kip için ek kayıp YOK; kayıpsız kipte GEREKSİZ
   /// (`QPDFTrimEngine` çıktısını qpdf'in kendisi yazıyor) ve o yüzden orada çağrılmıyor.
   public static func repair(_ url: URL, qpdf: URL) async throws {
-    let temporary = url.deletingLastPathComponent()
-      .appendingPathComponent(".\(url.lastPathComponent).repair.pdf")
-    let fm = FileManager.default
-    try? fm.removeItem(at: temporary)
-    let result = try await ProcessRunner.run(qpdf, arguments: [url.path, temporary.path])
-    guard result.status == 0 || result.status == 3, fm.fileExists(atPath: temporary.path) else {
-      try? fm.removeItem(at: temporary)
-      return
+    // `temporary` qpdf'in KENDİSİ tarafından yazılıyor (subprocess) — öngörülebilir bir gizli ad
+    // yerine `TempArtifact.withPrivateDirectory`'nin ürettiği tek kullanıcıya ait, benzersiz
+    // dizin içinde üretilir (bkz. o tipin gerekçesi: sembolik bağ öncesi yarışı kapatan asıl şey
+    // dizinin kendisinin bu çağrıdan önce VAR OLMAMASI).
+    try await TempArtifact.withPrivateDirectory(in: url.deletingLastPathComponent()) { tempDir in
+      let temporary = tempDir.appendingPathComponent("repaired.pdf")
+      let fm = FileManager.default
+      let result = try await ProcessRunner.run(qpdf, arguments: [url.path, temporary.path])
+      guard result.status == 0 || result.status == 3, fm.fileExists(atPath: temporary.path) else {
+        return
+      }
+      _ = try? fm.replaceItemAt(url, withItemAt: temporary)
     }
-    _ = try? fm.replaceItemAt(url, withItemAt: temporary)
-    try? fm.removeItem(at: temporary)
   }
 
   public static func inspect(_ url: URL, qpdf: URL) async throws -> Result {

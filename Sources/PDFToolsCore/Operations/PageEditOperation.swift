@@ -66,38 +66,34 @@ public struct PageEditOperation: PDFOperation {
 
     let output = OutputNaming.uniqueURL(
       for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
-    progress(0)
-    let arguments = plan.qpdfArguments(input: file.url, output: partial)
-    do {
+    // GÜVENLİK: qpdf çıktıyı KENDİSİ oluşturuyor (subprocess) — `TempArtifact.withPrivateDirectory`
+    // kullanılıyor (bkz. o tipin gerekçesi).
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
+      progress(0)
+      let arguments = plan.qpdfArguments(input: file.url, output: partial)
       let result = try await ProcessRunner.run(qpdf, arguments: arguments)
       guard result.status == 0 || result.status == 3 else {
         throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
       }
-    } catch is CancellationError {
-      try? fm.removeItem(at: partial)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
-    progress(0.9)
+      progress(0.9)
 
-    // Kanıt: motora güvenme — çıktıyı KENDİMİZ ölçüyoruz (bkz. PageEditVerification yorumu: sıra/
-    // silme piksel karşılaştırmasıyla, döndürme ise bağımsızca yeniden okunan `/Rotate` bayrağıyla).
-    let verification = PageEditVerification.verify(input: file.url, plan: plan, output: partial)
-    guard verification.verdict == .clean else {
-      try? fm.removeItem(at: partial)
-      throw PageEditError.verificationFailed(verification.message)
-    }
+      // Kanıt: motora güvenme — çıktıyı KENDİMİZ ölçüyoruz (bkz. PageEditVerification yorumu:
+      // sıra/silme piksel karşılaştırmasıyla, döndürme ise bağımsızca yeniden okunan `/Rotate`
+      // bayrağıyla).
+      let verification = PageEditVerification.verify(input: file.url, plan: plan, output: partial)
+      guard verification.verdict == .clean else {
+        throw PageEditError.verificationFailed(verification.message)
+      }
 
-    try fm.moveItem(at: partial, to: output)
-    progress(1)
-    return .produced(urls: [output], note: nil)
+      try fm.moveItem(at: partial, to: output)
+      progress(1)
+      return .produced(urls: [output], note: nil)
+    }
   }
 }
 

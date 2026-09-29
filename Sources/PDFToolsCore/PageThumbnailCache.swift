@@ -346,8 +346,12 @@ public actor PageThumbnailCache {
 
     let format = resolveDiskFormat()
     let finalURL = dir.appendingPathComponent(key).appendingPathExtension(format.fileExtension)
-    let tempURL = dir.appendingPathComponent(".\(key).part.\(format.fileExtension)")
-    try? fm.removeItem(at: tempURL)
+    // GÜVENLİK: `dir` dosya başına YENİDEN KULLANILAN, kalıcı bir önbellek dizini — her render'da
+    // taze bir özel alt dizin açılamaz — ve hedefi ImageIO'nun KENDİSİ path'ten oluşturuyor. Bu
+    // yüzden `TempArtifact.unpredictablePath` (bkz. o tipin gerekçesi, §3) kullanılıyor: önceki
+    // öngörülebilir `.{key}.part.{ext}` adı yerine UUID'li, tahmin edilemez bir ad.
+    let tempURL = TempArtifact.unpredictablePath(
+      in: dir, suffix: ".part.\(format.fileExtension)")
 
     guard let destination = CGImageDestinationCreateWithURL(tempURL as CFURL, format.uti, 1, nil)
     else { return }

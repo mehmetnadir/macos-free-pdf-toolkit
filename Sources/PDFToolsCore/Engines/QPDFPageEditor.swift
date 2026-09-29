@@ -54,15 +54,16 @@ struct QPDFPageEditor {
     return (header, objects)
   }
 
-  /// Güncellemeyi geçici bir JSON dosyası üzerinden uygular. JSON, çıktının yanında gizli bir ada
-  /// yazılır ve her durumda silinir.
+  /// Güncellemeyi geçici bir JSON dosyası üzerinden uygular. JSON, ÇIKTININ KENDİSİ Swift
+  /// tarafından yazıldığı için `TempArtifact.writeExclusive` ile üretilir (`O_EXCL|O_NOFOLLOW`,
+  /// bkz. o dosyanın gerekçesi) — öngörülebilir bir ada değil, benzersiz bir ada yazılır ve her
+  /// durumda silinir. `output` (asıl PDF) bu fonksiyonun DIŞINDA, çağıranın kendi güvenli geçici
+  /// dizininde üretilir — burada yalnızca qpdf'e giden KÜÇÜK JSON'un güvenliği ele alınıyor.
   func apply(update: [String: Any], to input: URL, output: URL) async throws {
-    let jsonURL = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.lastPathComponent).qpdf-update.json")
-    let fm = FileManager.default
-    try? fm.removeItem(at: jsonURL)
-    try JSONSerialization.data(withJSONObject: update).write(to: jsonURL)
-    defer { try? fm.removeItem(at: jsonURL) }
+    let jsonURL = try TempArtifact.writeExclusive(
+      JSONSerialization.data(withJSONObject: update),
+      in: output.deletingLastPathComponent(), suffix: ".qpdf-update.json")
+    defer { try? FileManager.default.removeItem(at: jsonURL) }
     let result = try await ProcessRunner.run(
       executable, arguments: [input.path, "--update-from-json=\(jsonURL.path)", output.path])
     try Self.expectSuccess(result, doing: "write the updated PDF")

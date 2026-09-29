@@ -94,14 +94,15 @@ public struct ImageExportOperation: PDFOperation {
     let total = document.numberOfPages
 
     let outputDir = OutputNaming.uniqueDirectory(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let partialDir = outputDir.deletingLastPathComponent()
-      .appendingPathComponent(".\(outputDir.lastPathComponent).part", isDirectory: true)
     let fm = FileManager.default
-    try? fm.removeItem(at: partialDir)
-    try fm.createDirectory(at: partialDir, withIntermediateDirectories: true)
 
-    var outputs: [URL] = []
-    do {
+    // GÜVENLİK: `renderPage` her sayfayı `CGImageDestinationCreateWithURL` ile — ImageIO'nun
+    // KENDİSİ oluşturduğu bir dosyaya — yazıyor. `TempArtifact.withPrivateDirectory` kullanılıyor
+    // (bkz. o tipin gerekçesi).
+    return try await TempArtifact.withPrivateDirectory(
+      in: outputDir.deletingLastPathComponent()
+    ) { partialDir in
+      var outputs: [URL] = []
       for pageIndex in 1...total {
         try Task.checkCancellation()
         guard let page = document.page(at: pageIndex) else { continue }
@@ -113,25 +114,22 @@ public struct ImageExportOperation: PDFOperation {
         outputs.append(pageURL)
         progress(Double(pageIndex) / Double(total))
       }
-    } catch is CancellationError {
-      try? fm.removeItem(at: partialDir)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partialDir)
-      throw error
-    }
 
-    // Kanıt: üretilen dosya sayısı == sayfa sayısı. Piksel boyutu ve "boş değil" ölçümü
-    // `ImageExportVerification` ile testlerde yapılır (her sayfada tek tek koşmak, meşru şekilde
-    // boş bırakılmış bir kaynak sayfayı hataymış gibi reddedebileceğinden burada zorunlu değil).
-    guard outputs.count == total else {
-      try? fm.removeItem(at: partialDir)
-      throw OperationError.imageExportVerificationFailed
-    }
+      // Kanıt: üretilen dosya sayısı == sayfa sayısı. Piksel boyutu ve "boş değil" ölçümü
+      // `ImageExportVerification` ile testlerde yapılır (her sayfada tek tek koşmak, meşru
+      // şekilde boş bırakılmış bir kaynak sayfayı hataymış gibi reddedebileceğinden burada
+      // zorunlu değil).
+      guard outputs.count == total else {
+        throw OperationError.imageExportVerificationFailed
+      }
 
-    try fm.moveItem(at: partialDir, to: outputDir)
-    let finalOutputs = outputs.map { outputDir.appendingPathComponent($0.lastPathComponent) }
-    return .produced(urls: finalOutputs, note: nil)
+      try fm.moveItem(at: partialDir, to: outputDir)
+      // Nihai klasörün DAVRANIŞI değişmemeli: `partialDir` güvenlik için `0700` (mkdir) ile
+      // açılmıştı, ama görünür/paylaşılan çıktı klasörü eskisi gibi standart (0755) izinli olmalı.
+      try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: outputDir.path)
+      let finalOutputs = outputs.map { outputDir.appendingPathComponent($0.lastPathComponent) }
+      return .produced(urls: finalOutputs, note: nil)
+    }
   }
 
   private static func renderPage(_ page: CGPDFPage, dpi: CGFloat, format: ImageFormat, to url: URL) throws {

@@ -16,7 +16,7 @@ import Vision
 /// satırın tamamı o kutunun sol-alt köşesinden başlayarak çizilir; bu, arama/seçim için yeterli
 /// hizalama sağlar (bkz. `QRVerification.Detection` ile AYNI koordinat kuralı).
 ///
-/// DOĞRULAMA: çıktı `.part.pdf`'ten final ada taşınmadan önce `OCRVerification.
+/// DOĞRULAMA: çıktı güvenli geçici dizinden final ada taşınmadan önce `OCRVerification.
 /// searchablePageContains` ile GERÇEKTEN sınanır — `QRAddOperation`'ın "QR çizildi ama okunmuyor"
 /// hatasını yakalayan gate'iyle AYNI mantık ("metin eklendi ama aranamıyor" hatasını yakalar).
 public struct SearchablePDFOperation: PDFOperation {
@@ -64,73 +64,62 @@ public struct SearchablePDFOperation: PDFOperation {
 
     let output = OutputNaming.uniqueURL(
       for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
-    let samples: [(pageIndex: Int, sampleText: String)]
-    let sawTurkishDiacritic: Bool
-    do {
-      (samples, sawTurkishDiacritic) = try Self.writeOutput(
+    // GÜVENLİK: `writeOutput` bir `CGDataConsumer(url:)` üzerinden CoreGraphics'in KENDİSİ
+    // tarafından oluşturulan bir dosyaya yazıyor — `TempArtifact.withPrivateDirectory` kullanılıyor
+    // (bkz. o tipin gerekçesi).
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
+      let (samples, sawTurkishDiacritic) = try Self.writeOutput(
         document: document, total: total, languages: languages, dpi: dpi, to: partial,
         progress: progress)
-    } catch is CancellationError {
-      try? fm.removeItem(at: partial)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
 
-    guard let firstSample = samples.first else {
-      try? fm.removeItem(at: partial)
-      return .skipped(reason: "No text recognized — pages may be blank or too low quality to read")
-    }
-
-    // Kanıt: görünmez metin GERÇEKTEN seçilebilir/aranabilir mi (bkz. dosya üstü yorum).
-    guard
-      OCRVerification.searchablePageContains(
-        pdfAt: partial, pageIndex: firstSample.pageIndex,
-        expectedSubstring: firstSample.sampleText)
-    else {
-      try? fm.removeItem(at: partial)
-      throw SearchablePDFError.verificationFailed
-    }
-
-    // YENİDEN ÇİZMENİN ORTAK SON ADIMI (bkz. `RewriteOutput` gerekçesi): bu işlem sayfayı
-    // CoreGraphics ile yeniden çiziyor; ölçüldüğünde çıktının xref'i kırılıyor (gerçek bir matbaa
-    // dosyasında 64 nesne "offset 0"), sürüm düşüyor ve XMP üstverisi siliniyor. Onarım + yapı
-    // kapısı burada; kalan hasar sonuç satırında SÖYLENİYOR, sessizce yutulmuyor.
-    let rewrite: RewriteOutput.Report
-    do {
-      rewrite = try await RewriteOutput.finish(output: partial, source: file.url)
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
-
-    try fm.moveItem(at: partial, to: output)
-    progress(1)
-
-    // İKİ BAĞIMSIZ sinyal — bkz. `OCRVerification` dosya üstü CI ölçümü (GitHub macos-15 runner,
-    // 2026-09-08): bu makinede Vision'ın tr-TR'ye sessizce düşmediğinden emin olunamıyorsa YA DA
-    // GERÇEK tanınan metinde hiç Türkçe aksanlı harf yoksa, eklenen metin GÖRÜNMEZ katmanda
-    // sessizce bozuk kalabilir — kullanıcı bunu göremez (metin zaten görünmez). `sawTurkishDiacritic`
-    // burada `OCRVerification.containsTurkishDiacritic`'in `writeOutput` döngüsünde satır satır
-    // OR'lanmış hâli — tüm sayfa metnini bellekte tutmadan AYNI ikinci sinyali verir.
-    let requestsTurkish = languageKey == "tr" || languageKey == "auto"
-    var note: String?
-    if requestsTurkish {
-      let missingFromSupportedList = !OCRVerification.allLanguagesSupported(
-        ["tr-TR"], level: .accurate)
-      if missingFromSupportedList || !sawTurkishDiacritic {
-        note = OCROperation.turkishSupportWarning
+      guard let firstSample = samples.first else {
+        return .skipped(
+          reason: "No text recognized — pages may be blank or too low quality to read")
       }
+
+      // Kanıt: görünmez metin GERÇEKTEN seçilebilir/aranabilir mi (bkz. dosya üstü yorum).
+      guard
+        OCRVerification.searchablePageContains(
+          pdfAt: partial, pageIndex: firstSample.pageIndex,
+          expectedSubstring: firstSample.sampleText)
+      else {
+        throw SearchablePDFError.verificationFailed
+      }
+
+      // YENİDEN ÇİZMENİN ORTAK SON ADIMI (bkz. `RewriteOutput` gerekçesi): bu işlem sayfayı
+      // CoreGraphics ile yeniden çiziyor; ölçüldüğünde çıktının xref'i kırılıyor (gerçek bir
+      // matbaa dosyasında 64 nesne "offset 0"), sürüm düşüyor ve XMP üstverisi siliniyor. Onarım +
+      // yapı kapısı burada; kalan hasar sonuç satırında SÖYLENİYOR, sessizce yutulmuyor.
+      let rewrite = try await RewriteOutput.finish(output: partial, source: file.url)
+
+      try fm.moveItem(at: partial, to: output)
+      progress(1)
+
+      // İKİ BAĞIMSIZ sinyal — bkz. `OCRVerification` dosya üstü CI ölçümü (GitHub macos-15
+      // runner, 2026-09-08): bu makinede Vision'ın tr-TR'ye sessizce düşmediğinden emin
+      // olunamıyorsa YA DA GERÇEK tanınan metinde hiç Türkçe aksanlı harf yoksa, eklenen metin
+      // GÖRÜNMEZ katmanda sessizce bozuk kalabilir — kullanıcı bunu göremez (metin zaten
+      // görünmez). `sawTurkishDiacritic` burada `OCRVerification.containsTurkishDiacritic`'in
+      // `writeOutput` döngüsünde satır satır OR'lanmış hâli — tüm sayfa metnini bellekte
+      // tutmadan AYNI ikinci sinyali verir.
+      let requestsTurkish = languageKey == "tr" || languageKey == "auto"
+      var note: String?
+      if requestsTurkish {
+        let missingFromSupportedList = !OCRVerification.allLanguagesSupported(
+          ["tr-TR"], level: .accurate)
+        if missingFromSupportedList || !sawTurkishDiacritic {
+          note = OCROperation.turkishSupportWarning
+        }
+      }
+      // Yeniden çizme hasarı (varsa) OCR uyarısıyla birlikte bildirilir — biri diğerini bastırmaz.
+      let notes = [note, rewrite.note].compactMap { $0 }
+      return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
     }
-    // Yeniden çizme hasarı (varsa) OCR uyarısıyla birlikte bildirilir — biri diğerini bastırmaz.
-    let notes = [note, rewrite.note].compactMap { $0 }
-    return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
   }
 
   /// Kaynağın TÜM sayfalarını (kendi MediaBox'larıyla) yeni bir PDF'e kopyalar, her sayfada Vision

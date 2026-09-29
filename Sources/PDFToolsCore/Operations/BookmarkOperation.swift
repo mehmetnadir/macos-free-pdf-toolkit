@@ -82,45 +82,46 @@ public struct BookmarkOperation: PDFOperation {
   ) async throws -> OperationOutcome {
     let output = Self.uniqueJSONURL(
       for: file.url, suffix: Self.exportSuffix, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.json")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
-    progress(0)
-    let result = try await ProcessRunner.run(
-      pdfcpu, arguments: ["bookmarks", "export", file.url.path, partial.path])
-    guard result.status == 0 else {
-      try? fm.removeItem(at: partial)
-      let combined = (result.stderr + result.stdout).lowercased()
-      if combined.contains("no bookmarks available") {
-        return .skipped(reason: "No bookmarks to export")
+    // GÜVENLİK: pdfcpu çıktıyı KENDİSİ oluşturuyor (subprocess) — `TempArtifact.
+    // withPrivateDirectory` kullanılıyor (bkz. o tipin gerekçesi).
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("export.json")
+      progress(0)
+      let result = try await ProcessRunner.run(
+        pdfcpu, arguments: ["bookmarks", "export", file.url.path, partial.path])
+      guard result.status == 0 else {
+        let combined = (result.stderr + result.stdout).lowercased()
+        if combined.contains("no bookmarks available") {
+          return .skipped(reason: "No bookmarks to export")
+        }
+        throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
       }
-      throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
-    }
-    progress(0.6)
+      progress(0.6)
 
-    // Kanıt 1: JSON geçerli ve ayrıştırılabilir.
-    guard let data = try? Data(contentsOf: partial),
-      let decoded = try? JSONDecoder().decode(BookmarkFile.self, from: data)
-    else {
-      try? fm.removeItem(at: partial)
-      throw BookmarkError.verificationFailed("exported JSON could not be read")
-    }
-    let exportedCount = Self.countEntries(decoded.bookmarks)
+      // Kanıt 1: JSON geçerli ve ayrıştırılabilir.
+      guard let data = try? Data(contentsOf: partial),
+        let decoded = try? JSONDecoder().decode(BookmarkFile.self, from: data)
+      else {
+        throw BookmarkError.verificationFailed("exported JSON could not be read")
+      }
+      let exportedCount = Self.countEntries(decoded.bookmarks)
 
-    // Kanıt 2: pdfcpu'nun JSON'da bildirdiği sayı, PDFKit'in KENDİ okuduğu outline sayısıyla
-    // uyuşuyor mu — motora güvenilmiyor (bkz. dosya üstü yorum).
-    let outlineCount = BookmarkVerification.outlineCount(file.url)
-    guard exportedCount == outlineCount, exportedCount > 0 else {
-      try? fm.removeItem(at: partial)
-      throw BookmarkError.verificationFailed(
-        "bookmark count mismatch (JSON: \(exportedCount), PDFKit: \(outlineCount))")
-    }
+      // Kanıt 2: pdfcpu'nun JSON'da bildirdiği sayı, PDFKit'in KENDİ okuduğu outline sayısıyla
+      // uyuşuyor mu — motora güvenilmiyor (bkz. dosya üstü yorum).
+      let outlineCount = BookmarkVerification.outlineCount(file.url)
+      guard exportedCount == outlineCount, exportedCount > 0 else {
+        throw BookmarkError.verificationFailed(
+          "bookmark count mismatch (JSON: \(exportedCount), PDFKit: \(outlineCount))")
+      }
 
-    try fm.moveItem(at: partial, to: output)
-    progress(1)
-    return .produced(urls: [output], note: "Exported \(exportedCount) bookmarks")
+      try fm.moveItem(at: partial, to: output)
+      progress(1)
+      return .produced(urls: [output], note: "Exported \(exportedCount) bookmarks")
+    }
   }
 
   // MARK: - İçe aktar
@@ -144,41 +145,44 @@ public struct BookmarkOperation: PDFOperation {
 
     let output = OutputNaming.uniqueURL(
       for: file.url, suffix: Self.importSuffix, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
-    progress(0)
-    // `--replace` HER ZAMAN geçilir — bkz. dosya üstü yorum: hedefte zaten yer imi varsa bu bayrak
-    // olmadan pdfcpu "existing bookmarks" ile başarısız oluyor (ölçüldü).
-    let result = try await ProcessRunner.run(
-      pdfcpu,
-      arguments: ["bookmarks", "import", "--replace", file.url.path, jsonURL.path, partial.path])
-    guard result.status == 0 else {
-      try? fm.removeItem(at: partial)
-      throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
+    // GÜVENLİK: pdfcpu çıktıyı KENDİSİ oluşturuyor (subprocess) — `TempArtifact.
+    // withPrivateDirectory` kullanılıyor (bkz. o tipin gerekçesi).
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
+      progress(0)
+      // `--replace` HER ZAMAN geçilir — bkz. dosya üstü yorum: hedefte zaten yer imi varsa bu
+      // bayrak olmadan pdfcpu "existing bookmarks" ile başarısız oluyor (ölçüldü).
+      let result = try await ProcessRunner.run(
+        pdfcpu,
+        arguments: [
+          "bookmarks", "import", "--replace", file.url.path, jsonURL.path, partial.path,
+        ])
+      guard result.status == 0 else {
+        throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
+      }
+      progress(0.7)
+
+      // Kanıt 1: sayfa sayısı korunmuş.
+      guard let doc = CGPDFDocument(partial as CFURL), doc.numberOfPages == file.pageCount else {
+        throw BookmarkError.verificationFailed("page count wasn't preserved")
+      }
+
+      // Kanıt 2: çıktıdaki yer imi sayısı JSON'daki (girdi) ile eşit — PDFKit `outlineRoot`
+      // üzerinden BAĞIMSIZ bir sayım, pdfcpu'nun kendisine güvenilmiyor.
+      let actualCount = BookmarkVerification.outlineCount(partial)
+      guard actualCount == expectedCount else {
+        throw BookmarkError.verificationFailed(
+          "bookmark count mismatch (expected: \(expectedCount), output: \(actualCount))")
+      }
+
+      try fm.moveItem(at: partial, to: output)
+      progress(1)
+      return .produced(urls: [output], note: "Applied \(actualCount) bookmarks")
     }
-    progress(0.7)
-
-    // Kanıt 1: sayfa sayısı korunmuş.
-    guard let doc = CGPDFDocument(partial as CFURL), doc.numberOfPages == file.pageCount else {
-      try? fm.removeItem(at: partial)
-      throw BookmarkError.verificationFailed("page count wasn't preserved")
-    }
-
-    // Kanıt 2: çıktıdaki yer imi sayısı JSON'daki (girdi) ile eşit — PDFKit `outlineRoot` üzerinden
-    // BAĞIMSIZ bir sayım, pdfcpu'nun kendisine güvenilmiyor.
-    let actualCount = BookmarkVerification.outlineCount(partial)
-    guard actualCount == expectedCount else {
-      try? fm.removeItem(at: partial)
-      throw BookmarkError.verificationFailed(
-        "bookmark count mismatch (expected: \(expectedCount), output: \(actualCount))")
-    }
-
-    try fm.moveItem(at: partial, to: output)
-    progress(1)
-    return .produced(urls: [output], note: "Applied \(actualCount) bookmarks")
   }
 
   /// İç içe (kids) dahil TÜM giriş sayısını sayar — export/import doğrulamasının PAYLAŞTIĞI sayaç.

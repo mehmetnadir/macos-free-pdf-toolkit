@@ -55,45 +55,40 @@ public struct LinearizeOperation: PDFOperation {
     }
 
     let output = OutputNaming.uniqueURL(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
-    progress(0)
-    do {
+    // GÜVENLİK: qpdf çıktıyı KENDİSİ oluşturuyor (subprocess) — `TempArtifact.withPrivateDirectory`
+    // kullanılıyor (bkz. o tipin gerekçesi).
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
+      progress(0)
       let arguments = ["--linearize", file.url.path, partial.path]
       let result = try await ProcessRunner.run(qpdf, arguments: arguments)
       guard result.status == 0 || result.status == 3 else {
         throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
       }
-    } catch is CancellationError {
-      try? fm.removeItem(at: partial)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
-    progress(0.7)
+      progress(0.7)
 
-    // Kanıt 1: sayfa sayısı korunmuş mu.
-    guard let doc = CGPDFDocument(partial as CFURL), doc.numberOfPages == file.pageCount else {
-      try? fm.removeItem(at: partial)
-      throw LinearizeError.verificationFailed("page count wasn't preserved")
-    }
-    progress(0.85)
+      // Kanıt 1: sayfa sayısı korunmuş mu.
+      guard let doc = CGPDFDocument(partial as CFURL), doc.numberOfPages == file.pageCount else {
+        throw LinearizeError.verificationFailed("page count wasn't preserved")
+      }
+      progress(0.85)
 
-    // Kanıt 2: qpdf --check çıktısı GERÇEKTEN "File is linearized" diyor mu — motorun sessizce
-    // başarılı dönmesine güvenilmiyor (bkz. LinearizeVerification yorumu).
-    let diagnosis = try await LinearizeVerification.diagnose(qpdf: qpdf, url: partial)
-    guard diagnosis.isLinearized else {
-      try? fm.removeItem(at: partial)
-      throw LinearizeError.verificationFailed("qpdf --check didn't report the file as linearized")
-    }
+      // Kanıt 2: qpdf --check çıktısı GERÇEKTEN "File is linearized" diyor mu — motorun sessizce
+      // başarılı dönmesine güvenilmiyor (bkz. LinearizeVerification yorumu).
+      let diagnosis = try await LinearizeVerification.diagnose(qpdf: qpdf, url: partial)
+      guard diagnosis.isLinearized else {
+        throw LinearizeError.verificationFailed(
+          "qpdf --check didn't report the file as linearized")
+      }
 
-    try fm.moveItem(at: partial, to: output)
-    progress(1)
-    return .produced(urls: [output], note: nil)
+      try fm.moveItem(at: partial, to: output)
+      progress(1)
+      return .produced(urls: [output], note: nil)
+    }
   }
 }
 

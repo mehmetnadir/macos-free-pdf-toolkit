@@ -54,39 +54,35 @@ public struct MergeOperation: PDFOperation {
     progress(0)
     let firstInput = files[0].url
     let output = OutputNaming.uniqueURL(for: firstInput, suffix: outputSuffix, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
     var arguments = ["--empty", "--pages"]
     arguments += files.map(\.url.path)
-    arguments += ["--", partial.path]
+    arguments += ["--"]
 
-    do {
-      let result = try await ProcessRunner.run(qpdf, arguments: arguments)
+    // GÜVENLİK: qpdf çıktıyı KENDİSİ oluşturuyor (subprocess) — `TempArtifact.withPrivateDirectory`
+    // kullanılıyor (bkz. o tipin gerekçesi).
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
+      let result = try await ProcessRunner.run(qpdf, arguments: arguments + [partial.path])
       guard result.status == 0 || result.status == 3 else {
         throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
       }
-    } catch is CancellationError {
-      try? fm.removeItem(at: partial)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
-    progress(0.9)
+      progress(0.9)
 
-    // Kanıt: çıktı sayfa sayısı == girdilerin toplamı. Sayfa içeriğinin doğru konuma taşındığının
-    // (metin dahil) daha derin kanıtı `MergeVerification.pagesMatch` ile testlerde ölçülür.
-    let expectedPages = files.reduce(0) { $0 + $1.pageCount }
-    guard MergeVerification.pageCountMatches(partial, expected: expectedPages) else {
-      try? fm.removeItem(at: partial)
-      throw OperationError.mergeVerificationFailed
-    }
+      // Kanıt: çıktı sayfa sayısı == girdilerin toplamı. Sayfa içeriğinin doğru konuma
+      // taşındığının (metin dahil) daha derin kanıtı `MergeVerification.pagesMatch` ile testlerde
+      // ölçülür.
+      let expectedPages = files.reduce(0) { $0 + $1.pageCount }
+      guard MergeVerification.pageCountMatches(partial, expected: expectedPages) else {
+        throw OperationError.mergeVerificationFailed
+      }
 
-    try fm.moveItem(at: partial, to: output)
-    progress(1)
-    return .produced(urls: [output], note: nil)
+      try fm.moveItem(at: partial, to: output)
+      progress(1)
+      return .produced(urls: [output], note: nil)
+    }
   }
 }

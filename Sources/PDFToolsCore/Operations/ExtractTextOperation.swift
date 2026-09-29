@@ -63,16 +63,12 @@ public struct ExtractTextOperation: PDFOperation {
     let combined = Self.combine(pageTexts, layout: layout)
 
     let output = Self.uniqueTextURL(for: file.url, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.txt")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
-    do {
-      try combined.write(to: partial, atomically: true, encoding: .utf8)
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
+    // GÜVENLİK: Swift'in KENDİSİ veri yazıyor (metin dosyası) — `TempArtifact.writeExclusive`
+    // ile `O_EXCL|O_NOFOLLOW|O_CREAT` korumalı, benzersiz bir dosyaya yazılıyor (bkz. o tipin
+    // gerekçesi).
+    let partial = try TempArtifact.writeExclusive(
+      Data(combined.utf8), in: output.deletingLastPathComponent(), suffix: ".part.txt")
     progress(0.9)
 
     // Kanıt: çıktı dosyası GERÇEKTEN boş değil (yazma sırasında sessiz bir kesilme olmadığından emin

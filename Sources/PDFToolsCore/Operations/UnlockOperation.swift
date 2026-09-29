@@ -43,34 +43,46 @@ public struct UnlockOperation: PDFOperation {
     guard !engines.isEmpty else { throw OperationError.noEngine }
 
     let output = OutputNaming.uniqueURL(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    // pdfcpu çıktı adında .pdf uzantısı ister; geçici dosya gizli ama .pdf uzantılı.
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
 
-    var lastError: Error = OperationError.noEngine
-    for engine in engines {
-      try? fm.removeItem(at: partial)
-      do {
-        try await engine.decrypt(input: file.url, output: partial, password: context.password, progress: progress)
-        // Kanıt: çıktı gerçekten şifresiz mi?
-        guard let check = CGPDFDocument(partial as CFURL), !check.isEncrypted, check.numberOfPages > 0 else {
-          throw OperationError.outputStillEncrypted(engine: engine.name)
+    // GÜVENLİK (2026-09-29 denetimi): şifresi çözülmüş PDF, qpdf/pdfcpu'nun KENDİSİ tarafından
+    // öngörülebilir bir gizli ada yazılıyordu — çıktı klasörü paylaşımlıysa (SMB, /Users/Shared,
+    // çok kullanıcılı Mac) aynı makinedeki başka bir yerel kullanıcı bu adı önceden sembolik bağ
+    // olarak koyup şifresi çözülmüş içeriği KENDİ hedefine yönlendirebilirdi (veri sızıntısı) —
+    // bu işlemlerin İÇİNDE en yüksek riskli bulgu. `TempArtifact.withPrivateDirectory` her denemede
+    // TEK kullanıcıya ait, benzersiz (UUID) bir dizin açar; alt süreç dosyayı bu dizinin içine
+    // yazar, dizin bu çağrıdan önce hiç var olmadığı için sembolik bağ yarışı kapanır.
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
+      var lastError: Error = OperationError.noEngine
+      for engine in engines {
+        try? fm.removeItem(at: partial)
+        do {
+          try await engine.decrypt(
+            input: file.url, output: partial, password: context.password, progress: progress)
+          // Kanıt: çıktı gerçekten şifresiz mi?
+          guard let check = CGPDFDocument(partial as CFURL), !check.isEncrypted,
+            check.numberOfPages > 0
+          else {
+            throw OperationError.outputStillEncrypted(engine: engine.name)
+          }
+          // Hassas çıktı (şifresi çözülmüş PDF): nihai dosyanın izinleri de daraltılır — kaynak
+          // dosyanın kendi izinlerine/umask'a bırakılmaz.
+          try fm.moveItem(at: partial, to: output)
+          try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: output.path)
+          return .produced(urls: [output], note: nil)
+        } catch EngineError.wrongPassword {
+          throw OperationError.wrongPassword
+        } catch is CancellationError {
+          throw CancellationError()
+        } catch {
+          lastError = error
+          continue
         }
-        try fm.moveItem(at: partial, to: output)
-        return .produced(urls: [output], note: nil)
-      } catch EngineError.wrongPassword {
-        try? fm.removeItem(at: partial)
-        throw OperationError.wrongPassword
-      } catch is CancellationError {
-        try? fm.removeItem(at: partial)
-        throw CancellationError()
-      } catch {
-        lastError = error
-        continue
       }
+      throw lastError
     }
-    try? fm.removeItem(at: partial)
-    throw lastError
   }
 }

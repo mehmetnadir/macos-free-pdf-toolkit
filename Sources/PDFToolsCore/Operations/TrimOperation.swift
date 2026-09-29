@@ -106,54 +106,45 @@ public struct TrimOperation: PDFOperation {
     }
 
     let output = OutputNaming.uniqueURL(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    // Motorlar çıktı adında uzantı bekler; diğer işlemlerle tutarlı gizli-ama-.pdf-uzantılı ad.
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
-    do {
+    // GÜVENLİK: `engine.trim` bağlı olduğu motora göre ya bir alt süreç (qpdf/gs) ya da
+    // CoreGraphics'in KENDİSİ tarafından oluşturulan bir dosyaya yazıyor — `TempArtifact.
+    // withPrivateDirectory` kullanılıyor (bkz. o tipin gerekçesi), her iki durumu da kapsıyor.
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
       try await engine.trim(input: file.url, output: partial, progress: progress)
-    } catch is CancellationError {
-      try? fm.removeItem(at: partial)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
 
-    var notes: [String] = []
+      var notes: [String] = []
 
-    // Sayfaları yeniden çizen motorların ÇIKTISI YAPISAL OLARAK BOZUK olabiliyor (ölçüldü:
-    // CoreGraphics çıktısında 64/5/31 nesne "offset 0" ile kaydedildi). qpdf'ten geçirmek bunu
-    // onarıyor; kip zaten dosyayı yeniden yazdığı için ek bir kayıp getirmiyor.
-    if mode == Self.removeOutside, let qpdf {
-      try? await PDFStructureCheck.repair(partial, qpdf: qpdf)
-    }
+      // Sayfaları yeniden çizen motorların ÇIKTISI YAPISAL OLARAK BOZUK olabiliyor (ölçüldü:
+      // CoreGraphics çıktısında 64/5/31 nesne "offset 0" ile kaydedildi). qpdf'ten geçirmek bunu
+      // onarıyor; kip zaten dosyayı yeniden yazdığı için ek bir kayıp getirmiyor.
+      if mode == Self.removeOutside, let qpdf {
+        try? await PDFStructureCheck.repair(partial, qpdf: qpdf)
+      }
 
-    do {
       try await verify(source: file.url, output: partial, mode: mode, qpdf: qpdf, notes: &notes)
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
 
-    try fm.moveItem(at: partial, to: output)
+      try fm.moveItem(at: partial, to: output)
 
-    if !PDFFileInfo.trimBoxIsConsistent(output) {
-      notes.append("bleed margin is inconsistent across pages")
+      if !PDFFileInfo.trimBoxIsConsistent(output) {
+        notes.append("bleed margin is inconsistent across pages")
+      }
+      if annotationsWillBeLost {
+        notes.append(
+          "\(annotationCount) links or form fields could not be kept — install Ghostscript to "
+            + "preserve them")
+      }
+      if mode == Self.keepOutside {
+        notes.append(
+          "pages were only resized — the bleed content can still be shown if the page box is "
+            + "enlarged again")
+      }
+      return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
     }
-    if annotationsWillBeLost {
-      notes.append(
-        "\(annotationCount) links or form fields could not be kept — install Ghostscript to "
-          + "preserve them")
-    }
-    if mode == Self.keepOutside {
-      notes.append(
-        "pages were only resized — the bleed content can still be shown if the page box is "
-          + "enlarged again")
-    }
-    return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
   }
 
   /// Hangi kipte hangi motor. SAF ve testle çivili: bu projenin en pahalı dersi motor seçimiydi

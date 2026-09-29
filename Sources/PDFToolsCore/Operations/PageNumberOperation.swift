@@ -93,64 +93,52 @@ public struct PageNumberOperation: PDFOperation {
 
     let output = OutputNaming.uniqueURL(
       for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
-    do {
+    // GÜVENLİK: `writeOutput` bir `CGDataConsumer(url:)` üzerinden CoreGraphics'in KENDİSİ
+    // tarafından oluşturulan bir dosyaya yazıyor — açık bir dosya tanıtıcısı veremeyiz, bu yüzden
+    // `TempArtifact.withPrivateDirectory` (bkz. o tipin gerekçesi) kullanılıyor.
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
       try Self.writeOutput(
         document: document, total: total, position: position, startAt: startAt, format: format,
         to: partial, progress: progress)
-    } catch is CancellationError {
-      try? fm.removeItem(at: partial)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
 
-    // Kanıt 1: sayfa sayısı korunmuş.
-    guard let outDoc = CGPDFDocument(partial as CFURL), outDoc.numberOfPages == total else {
-      try? fm.removeItem(at: partial)
-      throw PageNumberError.verificationFailed("page count wasn't preserved")
-    }
-
-    // Kanıt 2: PDFKit ile metin GERİ OKUNUP beklenen numaranın GERÇEKTEN geçtiği doğrulanır —
-    // kendi çizim kodumuza güvenilmiyor (bkz. `PageNumberVerification`, kapsam-sınırı notu için
-    // tip yorumuna bakın). İlk VE son sayfa örneklenir: `startAt=0`'da 1. sayfanın numarasız
-    // KALMASI ayrı bir iddiadır, yalnız bir sayfa (`QRAddOperation`'ın tek-sayfa gerekçesinin
-    // aksine) yeterli değil.
-    for pageIndex in Set([1, total]) {
-      guard
-        let ok = PageNumberVerification.pageMatchesExpectation(
-          pdfAt: partial, pageIndex: pageIndex, total: total, startAt: startAt, format: format)
-      else {
-        try? fm.removeItem(at: partial)
-        throw PageNumberError.verificationFailed("page \(pageIndex) could not be read")
+      // Kanıt 1: sayfa sayısı korunmuş.
+      guard let outDoc = CGPDFDocument(partial as CFURL), outDoc.numberOfPages == total else {
+        throw PageNumberError.verificationFailed("page count wasn't preserved")
       }
-      guard ok else {
-        try? fm.removeItem(at: partial)
-        throw PageNumberError.verificationFailed(
-          "page \(pageIndex) doesn't contain the expected number")
+
+      // Kanıt 2: PDFKit ile metin GERİ OKUNUP beklenen numaranın GERÇEKTEN geçtiği doğrulanır —
+      // kendi çizim kodumuza güvenilmiyor (bkz. `PageNumberVerification`, kapsam-sınırı notu için
+      // tip yorumuna bakın). İlk VE son sayfa örneklenir: `startAt=0`'da 1. sayfanın numarasız
+      // KALMASI ayrı bir iddiadır, yalnız bir sayfa (`QRAddOperation`'ın tek-sayfa gerekçesinin
+      // aksine) yeterli değil.
+      for pageIndex in Set([1, total]) {
+        guard
+          let ok = PageNumberVerification.pageMatchesExpectation(
+            pdfAt: partial, pageIndex: pageIndex, total: total, startAt: startAt, format: format)
+        else {
+          throw PageNumberError.verificationFailed("page \(pageIndex) could not be read")
+        }
+        guard ok else {
+          throw PageNumberError.verificationFailed(
+            "page \(pageIndex) doesn't contain the expected number")
+        }
       }
-    }
 
-    // YENİDEN ÇİZMENİN ORTAK SON ADIMI (bkz. `RewriteOutput` gerekçesi): bu işlem sayfayı
-    // CoreGraphics ile yeniden çiziyor; ölçüldüğünde çıktının xref'i kırılıyor (gerçek bir matbaa
-    // dosyasında 64 nesne "offset 0"), sürüm düşüyor ve XMP üstverisi siliniyor. Onarım + yapı
-    // kapısı burada; kalan hasar sonuç satırında SÖYLENİYOR, sessizce yutulmuyor.
-    let rewrite: RewriteOutput.Report
-    do {
-      rewrite = try await RewriteOutput.finish(output: partial, source: file.url)
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
+      // YENİDEN ÇİZMENİN ORTAK SON ADIMI (bkz. `RewriteOutput` gerekçesi): bu işlem sayfayı
+      // CoreGraphics ile yeniden çiziyor; ölçüldüğünde çıktının xref'i kırılıyor (gerçek bir
+      // matbaa dosyasında 64 nesne "offset 0"), sürüm düşüyor ve XMP üstverisi siliniyor. Onarım +
+      // yapı kapısı burada; kalan hasar sonuç satırında SÖYLENİYOR, sessizce yutulmuyor.
+      let rewrite = try await RewriteOutput.finish(output: partial, source: file.url)
 
-    try fm.moveItem(at: partial, to: output)
-    progress(1)
-    return .produced(urls: [output], note: rewrite.note)
+      try fm.moveItem(at: partial, to: output)
+      progress(1)
+      return .produced(urls: [output], note: rewrite.note)
+    }
   }
 
   /// Kaynağın TÜM sayfalarını (kendi MediaBox'larıyla) yeni bir PDF'e kopyalar, gerektiğinde

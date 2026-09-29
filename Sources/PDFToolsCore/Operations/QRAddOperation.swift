@@ -89,48 +89,39 @@ public struct QRAddOperation: PDFOperation {
 
     let output = OutputNaming.uniqueURL(
       for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
-    do {
+    // GÜVENLİK: `writeOutput` bir `CGDataConsumer(url:)` üzerinden CoreGraphics'in KENDİSİ
+    // tarafından oluşturulan bir dosyaya yazıyor — `TempArtifact.withPrivateDirectory` kullanılıyor
+    // (bkz. o tipin gerekçesi).
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
       try Self.writeOutput(
         document: document, total: total, qrImage: qrImage, position: position, sizePt: sizePt,
         onlyFirstPage: onlyFirstPage, to: partial, progress: progress)
-    } catch is CancellationError {
-      try? fm.removeItem(at: partial)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
 
-    // Kanıt: çıktının QR'ı GERÇEKTEN okunuyor mu (bkz. `QRVerification` tip yorumu) — "QR çizildi
-    // ama okunmuyor" hatasını yakalayan asıl kontrol. Yalnız 1. sayfa denetlenir: içerik/konum/
-    // boyut her hedef sayfada AYNI olduğundan (bu sayede `TrimVerification`'ın "yalnız sayfa 1"
-    // kararıyla aynı gerekçeyle) tek sayfa yeterli kanıt — "first" kipinde zaten QR'lı olan tek
-    // sayfa budur, "all" kipinde de QR'lı ilk sayfa budur.
-    guard QRVerification.pageContains(pdfAt: partial, pageIndex: 1, expectedContent: content) else {
-      try? fm.removeItem(at: partial)
-      throw QRError.verificationFailed
-    }
+      // Kanıt: çıktının QR'ı GERÇEKTEN okunuyor mu (bkz. `QRVerification` tip yorumu) — "QR
+      // çizildi ama okunmuyor" hatasını yakalayan asıl kontrol. Yalnız 1. sayfa denetlenir:
+      // içerik/konum/boyut her hedef sayfada AYNI olduğundan (bu sayede `TrimVerification`'ın
+      // "yalnız sayfa 1" kararıyla aynı gerekçeyle) tek sayfa yeterli kanıt — "first" kipinde
+      // zaten QR'lı olan tek sayfa budur, "all" kipinde de QR'lı ilk sayfa budur.
+      guard QRVerification.pageContains(pdfAt: partial, pageIndex: 1, expectedContent: content)
+      else {
+        throw QRError.verificationFailed
+      }
 
-    // YENİDEN ÇİZMENİN ORTAK SON ADIMI (bkz. `RewriteOutput` gerekçesi): bu işlem sayfayı
-    // CoreGraphics ile yeniden çiziyor; ölçüldüğünde çıktının xref'i kırılıyor (gerçek bir matbaa
-    // dosyasında 64 nesne "offset 0"), sürüm düşüyor ve XMP üstverisi siliniyor. Onarım + yapı
-    // kapısı burada; kalan hasar sonuç satırında SÖYLENİYOR, sessizce yutulmuyor.
-    let rewrite: RewriteOutput.Report
-    do {
-      rewrite = try await RewriteOutput.finish(output: partial, source: file.url)
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
+      // YENİDEN ÇİZMENİN ORTAK SON ADIMI (bkz. `RewriteOutput` gerekçesi): bu işlem sayfayı
+      // CoreGraphics ile yeniden çiziyor; ölçüldüğünde çıktının xref'i kırılıyor (gerçek bir
+      // matbaa dosyasında 64 nesne "offset 0"), sürüm düşüyor ve XMP üstverisi siliniyor. Onarım +
+      // yapı kapısı burada; kalan hasar sonuç satırında SÖYLENİYOR, sessizce yutulmuyor.
+      let rewrite = try await RewriteOutput.finish(output: partial, source: file.url)
 
-    try fm.moveItem(at: partial, to: output)
-    progress(1)
-    return .produced(urls: [output], note: rewrite.note)
+      try fm.moveItem(at: partial, to: output)
+      progress(1)
+      return .produced(urls: [output], note: rewrite.note)
+    }
   }
 
   /// Kaynağın TÜM sayfalarını (kendi MediaBox'larıyla) yeni bir PDF'e kopyalar; `onlyFirstPage`

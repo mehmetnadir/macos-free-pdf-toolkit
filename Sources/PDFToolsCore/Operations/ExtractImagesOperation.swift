@@ -53,57 +53,54 @@ public struct ExtractImagesOperation: PDFOperation {
 
     let outputDir = OutputNaming.uniqueDirectory(
       for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let partialDir = outputDir.deletingLastPathComponent()
-      .appendingPathComponent(".\(outputDir.lastPathComponent).part", isDirectory: true)
     let fm = FileManager.default
-    try? fm.removeItem(at: partialDir)
-    // pdfcpu hedef klasörü KENDİSİ oluşturmuyor (ölçülüp doğrulandı) — Parçala/Görüntüye Aktar'daki
-    // gibi burada da önceden oluşturuluyor.
-    try fm.createDirectory(at: partialDir, withIntermediateDirectories: true)
 
-    progress(0)
-    do {
+    // GÜVENLİK: pdfcpu görselleri KENDİSİ oluşturuyor (subprocess) — `TempArtifact.
+    // withPrivateDirectory` kullanılıyor (bkz. o tipin gerekçesi); pdfcpu hedef klasörü KENDİSİ
+    // oluşturmuyor olsa da (ölçülüp doğrulandı) burada da önceden AÇILMIŞ (mkdir) bir dizin veriliyor.
+    return try await TempArtifact.withPrivateDirectory(
+      in: outputDir.deletingLastPathComponent()
+    ) { partialDir in
+      progress(0)
       let result = try await ProcessRunner.run(
         pdfcpu, arguments: ["images", "extract", file.url.path, partialDir.path])
       guard result.status == 0 else {
         throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
       }
-    } catch is CancellationError {
-      try? fm.removeItem(at: partialDir)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partialDir)
-      throw error
-    }
-    progress(0.7)
+      progress(0.7)
 
-    let extracted =
-      (try? fm.contentsOfDirectory(at: partialDir, includingPropertiesForKeys: nil)) ?? []
-    var kept: [URL] = []
-    for url in extracted {
-      // Kanıt: her dosya GERÇEKTEN açılabilir bir görüntü olmalı (bkz. ImageExportVerification) —
-      // açılamayan bir dosya elenir, minSize eşiği piksel alanına göre uygulanır.
-      guard let result = ImageExportVerification.inspect(url) else {
-        try? fm.removeItem(at: url)
-        continue
+      let extracted =
+        (try? fm.contentsOfDirectory(at: partialDir, includingPropertiesForKeys: nil)) ?? []
+      var kept: [URL] = []
+      for url in extracted {
+        // Kanıt: her dosya GERÇEKTEN açılabilir bir görüntü olmalı (bkz. ImageExportVerification)
+        // — açılamayan bir dosya elenir, minSize eşiği piksel alanına göre uygulanır.
+        guard let result = ImageExportVerification.inspect(url) else {
+          try? fm.removeItem(at: url)
+          continue
+        }
+        if result.width * result.height >= minSize {
+          kept.append(url)
+        } else {
+          try? fm.removeItem(at: url)
+        }
       }
-      if result.width * result.height >= minSize {
-        kept.append(url)
-      } else {
-        try? fm.removeItem(at: url)
+
+      guard !kept.isEmpty else {
+        return .skipped(reason: "No embedded images found")
       }
-    }
 
-    guard !kept.isEmpty else {
-      try? fm.removeItem(at: partialDir)
-      return .skipped(reason: "No embedded images found")
+      try fm.moveItem(at: partialDir, to: outputDir)
+      // Nihai klasörün DAVRANIŞI değişmemeli: `partialDir` güvenlik için `0700` (mkdir) ile
+      // açılmıştı, ama görünür/paylaşılan çıktı klasörü eskisi gibi standart (0755) izinli olmalı
+      // — yalnız ARA dosyanın yeri/adı/izni değişiyor (bkz. görev kısıtı §3), son kullanıcıya
+      // görünen klasörün izinleri DEĞİL.
+      try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: outputDir.path)
+      progress(1)
+      let finalOutputs =
+        kept.map { outputDir.appendingPathComponent($0.lastPathComponent) }
+        .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+      return .produced(urls: finalOutputs, note: nil)
     }
-
-    try fm.moveItem(at: partialDir, to: outputDir)
-    progress(1)
-    let finalOutputs =
-      kept.map { outputDir.appendingPathComponent($0.lastPathComponent) }
-      .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-    return .produced(urls: finalOutputs, note: nil)
   }
 }

@@ -100,54 +100,47 @@ public enum BlankPDF {
       throw BlankPDFError.writeFailed
     }
 
-    // Depodaki diğer işlemlerin deseni (bkz. `UnlockOperation`): önce gizli `.part.pdf`'e yaz,
-    // doğrulama geçince TEK `moveItem` ile son ada.
-    let partial = url.deletingLastPathComponent()
-      .appendingPathComponent(".\(url.deletingPathExtension().lastPathComponent).part.pdf")
-    try? fm.removeItem(at: partial)
+    // GÜVENLİK: `CGDataConsumer(url:)` dosyayı CoreGraphics'in KENDİSİ oluşturuyor — açık bir
+    // dosya tanıtıcısı veremeyiz. `TempArtifact.withPrivateDirectorySync` (bkz. o tipin gerekçesi)
+    // öngörülebilir bir gizli ad yerine tek kullanıcıya ait, benzersiz bir dizin açar; doğrulama
+    // geçince TEK `moveItem` ile son ada taşınır.
+    try TempArtifact.withPrivateDirectorySync(in: url.deletingLastPathComponent()) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
+      var mediaBox = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+      guard let consumer = CGDataConsumer(url: partial as CFURL) else {
+        throw BlankPDFError.writeFailed
+      }
+      guard let ctx = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+        throw BlankPDFError.writeFailed
+      }
 
-    var mediaBox = CGRect(x: 0, y: 0, width: size.width, height: size.height)
-    guard let consumer = CGDataConsumer(url: partial as CFURL) else {
-      try? fm.removeItem(at: partial)
-      throw BlankPDFError.writeFailed
-    }
-    guard let ctx = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
-      try? fm.removeItem(at: partial)
-      throw BlankPDFError.writeFailed
-    }
+      // `kCGPDFContextMediaBox` değeri "CFData containing a CGRect, by value" olmalı — `NSValue`
+      // sessizce yok sayılır (bkz. `CoreGraphicsTrimEngine` yorumu, ölçüldü). Her sayfa AYNI
+      // kutuyu kullanıyor ama context başlatma sırasına GÜVENMEK yerine her `beginPDFPage`'e
+      // açıkça veriyoruz — sayfa sayısı arttıkça (250) davranış hâlâ garanti kalsın diye.
+      var pageBox = mediaBox
+      let boxData = Data(bytes: &pageBox, count: MemoryLayout<CGRect>.size)
+      let pageInfo = [kCGPDFContextMediaBox as String: boxData as CFData] as CFDictionary
 
-    // `kCGPDFContextMediaBox` değeri "CFData containing a CGRect, by value" olmalı — `NSValue`
-    // sessizce yok sayılır (bkz. `CoreGraphicsTrimEngine` yorumu, ölçüldü). Her sayfa AYNI kutuyu
-    // kullanıyor ama context başlatma sırasına GÜVENMEK yerine her `beginPDFPage`'e açıkça
-    // veriyoruz — sayfa sayısı arttıkça (250) davranış hâlâ garanti kalsın diye.
-    var pageBox = mediaBox
-    let boxData = Data(bytes: &pageBox, count: MemoryLayout<CGRect>.size)
-    let pageInfo = [kCGPDFContextMediaBox as String: boxData as CFData] as CFDictionary
+      for _ in 0..<pagesToWrite {
+        try Task.checkCancellation()
+        ctx.beginPDFPage(pageInfo)
+        // Sayfa GERÇEKTEN boş: hiçbir içerik çizilmiyor.
+        ctx.endPDFPage()
+      }
+      ctx.closePDF()
 
-    for _ in 0..<pagesToWrite {
-      try Task.checkCancellation()
-      ctx.beginPDFPage(pageInfo)
-      // Sayfa GERÇEKTEN boş: hiçbir içerik çizilmiyor.
-      ctx.endPDFPage()
-    }
-    ctx.closePDF()
-
-    // Kanıt: dosyayı yeniden aç ve ölç. Motorun/API'nin "yazdım" demesine güvenilmez.
-    do {
+      // Kanıt: dosyayı yeniden aç ve ölç. Motorun/API'nin "yazdım" demesine güvenilmez.
       try verify(partial, expectedPages: pageCount, expectedSize: size)
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
 
-    if overwrite && destinationExists {
-      try? fm.removeItem(at: url)
-    }
-    do {
-      try fm.moveItem(at: partial, to: url)
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw BlankPDFError.writeFailed
+      if overwrite && destinationExists {
+        try? fm.removeItem(at: url)
+      }
+      do {
+        try fm.moveItem(at: partial, to: url)
+      } catch {
+        throw BlankPDFError.writeFailed
+      }
     }
   }
 

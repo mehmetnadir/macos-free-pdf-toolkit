@@ -98,12 +98,16 @@ public struct CompressOperation: PDFOperation {
 
     let level = context.options[Self.levelOptionID] ?? "light"
     let output = OutputNaming.uniqueURL(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
-    do {
+    // GÜVENLİK: her üç kademe de ("light"/"strong": qpdf/gs subprocess; "raster": CoreGraphics'in
+    // `CGContext(url:)` ile KENDİSİ oluşturduğu dosya) hedef dosyayı BİZİM açtığımız bir tanıtıcı
+    // ÜZERİNDEN değil kendi yoluyla yazıyor — `TempArtifact.withPrivateDirectory` kullanılıyor
+    // (bkz. o tipin gerekçesi).
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
       switch level {
       case "strong":
         // Ham gs ikilisinin yolu. `trimEngine()` ARTIK KULLANILMAZ: o kesim MOTOR TERCİHİNİ
@@ -159,65 +163,55 @@ public struct CompressOperation: PDFOperation {
         }
         progress(0.9)
       }
-    } catch is CancellationError {
-      try? fm.removeItem(at: partial)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
 
-    // Kanıt 1: geçerli PDF, sayfa sayısı kaynakla AYNI (motorun sayfa düşürmediğinin kanıtı).
-    guard CompressVerification.pageCountMatches(partial, expected: file.pageCount) else {
-      try? fm.removeItem(at: partial)
-      throw CompressError.verificationFailed
-    }
-
-    var notes: [String] = []
-
-    if level == "raster" {
-      notes.append(Self.rasterTextLossWarning)
-      // Kanıt 2 (raster): sayfa BOŞ DEĞİL (beyaz olmayan piksel > eşik).
-      guard
-        let percent = CompressVerification.nonWhitePercent(partial),
-        percent > CompressVerification.minNonWhitePercentForNonEmpty
-      else {
-        try? fm.removeItem(at: partial)
+      // Kanıt 1: geçerli PDF, sayfa sayısı kaynakla AYNI (motorun sayfa düşürmediğinin kanıtı).
+      guard CompressVerification.pageCountMatches(partial, expected: file.pageCount) else {
         throw CompressError.verificationFailed
       }
-      // Kanıt 3 (raster): sayfa ölçüsü (MediaBox) korunmuş.
-      guard CompressVerification.pageSizeMatches(input: file.url, output: partial) else {
-        try? fm.removeItem(at: partial)
-        throw CompressError.verificationFailed
-      }
-    } else if let sourceDoc = CGPDFDocument(file.url as CFURL), sourceDoc.isUnlocked,
-      let sourcePage = sourceDoc.page(at: 1),
-      CompressVerification.containsTextOperator(sourcePage)
-    {
-      // Kanıt 2 (light/strong): kaynak sayfa 1'de GERÇEK metin varsa çıktıda da olmalı (bkz.
-      // `CompressVerification.containsTextOperator` yorumu — non-blank render kontrolü METİN ile
-      // GÖRÜNTÜ arasında ayrım yapamayacağı için burada operatör taraması kullanıldı).
-      guard
-        let outDoc = CGPDFDocument(partial as CFURL), let outPage = outDoc.page(at: 1),
-        CompressVerification.containsTextOperator(outPage)
-      else {
-        try? fm.removeItem(at: partial)
-        throw CompressError.verificationFailed
-      }
-    }
 
-    // Kanıt 4: çıktı kaynaktan küçük mü? Değilse ÇIKTIYI SİLME — kullanıcıya `note` ile bildir
-    // (sıkıştırma bazen büyütür, bunu sessizce "başarılı" saymak yanıltıcı olur).
-    let sizeResult = CompressVerification.compareSize(input: file.url, output: partial)
-    if sizeResult.verdict == .notSmaller {
-      notes.append(
-        "output didn't shrink (\(sizeResult.outputBytes) bytes ≥ \(sizeResult.inputBytes) "
-        + "bytes source)")
-    }
+      var notes: [String] = []
 
-    try fm.moveItem(at: partial, to: output)
-    progress(1)
-    return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
+      if level == "raster" {
+        notes.append(Self.rasterTextLossWarning)
+        // Kanıt 2 (raster): sayfa BOŞ DEĞİL (beyaz olmayan piksel > eşik).
+        guard
+          let percent = CompressVerification.nonWhitePercent(partial),
+          percent > CompressVerification.minNonWhitePercentForNonEmpty
+        else {
+          throw CompressError.verificationFailed
+        }
+        // Kanıt 3 (raster): sayfa ölçüsü (MediaBox) korunmuş.
+        guard CompressVerification.pageSizeMatches(input: file.url, output: partial) else {
+          throw CompressError.verificationFailed
+        }
+      } else if let sourceDoc = CGPDFDocument(file.url as CFURL), sourceDoc.isUnlocked,
+        let sourcePage = sourceDoc.page(at: 1),
+        CompressVerification.containsTextOperator(sourcePage)
+      {
+        // Kanıt 2 (light/strong): kaynak sayfa 1'de GERÇEK metin varsa çıktıda da olmalı (bkz.
+        // `CompressVerification.containsTextOperator` yorumu — non-blank render kontrolü METİN
+        // ile GÖRÜNTÜ arasında ayrım yapamayacağı için burada operatör taraması kullanıldı).
+        guard
+          let outDoc = CGPDFDocument(partial as CFURL), let outPage = outDoc.page(at: 1),
+          CompressVerification.containsTextOperator(outPage)
+        else {
+          throw CompressError.verificationFailed
+        }
+      }
+
+      // Kanıt 4: çıktı kaynaktan küçük mü? Değilse ÇIKTIYI SİLME — kullanıcıya `note` ile bildir
+      // (sıkıştırma bazen büyütür, bunu sessizce "başarılı" saymak yanıltıcı olur).
+      let sizeResult = CompressVerification.compareSize(input: file.url, output: partial)
+      if sizeResult.verdict == .notSmaller {
+        notes.append(
+          "output didn't shrink (\(sizeResult.outputBytes) bytes ≥ \(sizeResult.inputBytes) "
+          + "bytes source)")
+      }
+
+      try fm.moveItem(at: partial, to: output)
+      progress(1)
+      return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
+    }
   }
 
   /// Tek sayfayı `dpi`'de render edip JPEG'e (`quality`) sıkıştırır, sonra o JPEG'i `out`'un yeni

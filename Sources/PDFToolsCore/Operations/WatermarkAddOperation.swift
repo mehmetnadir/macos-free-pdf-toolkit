@@ -116,58 +116,47 @@ public struct WatermarkAddOperation: PDFOperation {
 
     let output = OutputNaming.uniqueURL(
       for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
-    do {
+    // GÜVENLİK: `writeOutput` bir `CGDataConsumer(url:)` üzerinden CoreGraphics'in KENDİSİ
+    // tarafından oluşturulan bir dosyaya yazıyor — `TempArtifact.withPrivateDirectory` kullanılıyor
+    // (bkz. o tipin gerekçesi).
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
       try Self.writeOutput(
         document: document, total: total, text: text, position: position, opacity: opacity,
         fontSize: fontSize, rgb: rgb, to: partial, progress: progress)
-    } catch is CancellationError {
-      try? fm.removeItem(at: partial)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
 
-    // Kanıt 1: sayfa sayısı korunmuş.
-    guard let outDoc = CGPDFDocument(partial as CFURL), outDoc.numberOfPages == total else {
-      try? fm.removeItem(at: partial)
-      throw WatermarkError.verificationFailed("page count wasn't preserved")
-    }
+      // Kanıt 1: sayfa sayısı korunmuş.
+      guard let outDoc = CGPDFDocument(partial as CFURL), outDoc.numberOfPages == total else {
+        throw WatermarkError.verificationFailed("page count wasn't preserved")
+      }
 
-    // Kanıt 2: filigran GERÇEKTEN beklenen bölgede mürekkep bırakmış mı — motora (kendi çizim
-    // kodumuza) güvenilmiyor, kaynak ve çıktı AYNI bölgede render edilip kıyaslanıyor (bkz.
-    // `WatermarkVerification`). Yalnız 1. sayfa denetlenir: konum/opaklık/renk her hedef sayfada
-    // AYNI olduğundan (`QRAddOperation`'ın "her sayfada aynı" kararıyla aynı gerekçe) tek sayfa
-    // yeterli kanıt.
-    guard
-      let delta = WatermarkVerification.delta(
-        sourceURL: file.url, outputURL: partial, pageIndex: 1, position: position),
-      delta >= WatermarkVerification.minDeltaPercent
-    else {
-      try? fm.removeItem(at: partial)
-      throw WatermarkError.verificationFailed("watermark wasn't detected in the expected area")
-    }
+      // Kanıt 2: filigran GERÇEKTEN beklenen bölgede mürekkep bırakmış mı — motora (kendi çizim
+      // kodumuza) güvenilmiyor, kaynak ve çıktı AYNI bölgede render edilip kıyaslanıyor (bkz.
+      // `WatermarkVerification`). Yalnız 1. sayfa denetlenir: konum/opaklık/renk her hedef
+      // sayfada AYNI olduğundan (`QRAddOperation`'ın "her sayfada aynı" kararıyla aynı gerekçe)
+      // tek sayfa yeterli kanıt.
+      guard
+        let delta = WatermarkVerification.delta(
+          sourceURL: file.url, outputURL: partial, pageIndex: 1, position: position),
+        delta >= WatermarkVerification.minDeltaPercent
+      else {
+        throw WatermarkError.verificationFailed("watermark wasn't detected in the expected area")
+      }
 
-    // YENİDEN ÇİZMENİN ORTAK SON ADIMI (bkz. `RewriteOutput` gerekçesi): bu işlem sayfayı
-    // CoreGraphics ile yeniden çiziyor; ölçüldüğünde çıktının xref'i kırılıyor (gerçek bir matbaa
-    // dosyasında 64 nesne "offset 0"), sürüm düşüyor ve XMP üstverisi siliniyor. Onarım + yapı
-    // kapısı burada; kalan hasar sonuç satırında SÖYLENİYOR, sessizce yutulmuyor.
-    let rewrite: RewriteOutput.Report
-    do {
-      rewrite = try await RewriteOutput.finish(output: partial, source: file.url)
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
+      // YENİDEN ÇİZMENİN ORTAK SON ADIMI (bkz. `RewriteOutput` gerekçesi): bu işlem sayfayı
+      // CoreGraphics ile yeniden çiziyor; ölçüldüğünde çıktının xref'i kırılıyor (gerçek bir
+      // matbaa dosyasında 64 nesne "offset 0"), sürüm düşüyor ve XMP üstverisi siliniyor. Onarım +
+      // yapı kapısı burada; kalan hasar sonuç satırında SÖYLENİYOR, sessizce yutulmuyor.
+      let rewrite = try await RewriteOutput.finish(output: partial, source: file.url)
 
-    try fm.moveItem(at: partial, to: output)
-    progress(1)
-    return .produced(urls: [output], note: rewrite.note)
+      try fm.moveItem(at: partial, to: output)
+      progress(1)
+      return .produced(urls: [output], note: rewrite.note)
+    }
   }
 
   /// Kaynağın TÜM sayfalarını (kendi MediaBox'larıyla) yeni bir PDF'e kopyalar, her sayfaya

@@ -94,10 +94,7 @@ public struct EncryptOperation: PDFOperation {
 
     let permissions = context.options[Self.permissionsOptionID] ?? "all"
     let output = OutputNaming.uniqueURL(for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let partial = output.deletingLastPathComponent()
-      .appendingPathComponent(".\(output.deletingPathExtension().lastPathComponent).part.pdf")
     let fm = FileManager.default
-    try? fm.removeItem(at: partial)
 
     var arguments = ["--encrypt"]
     if !userPassword.isEmpty { arguments.append("--user-password=\(userPassword)") }
@@ -111,33 +108,31 @@ public struct EncryptOperation: PDFOperation {
     }
     if needsAllowInsecure { arguments.append("--allow-insecure") }
     arguments.append("--")
-    arguments += [file.url.path, partial.path]
 
-    progress(0)
-    do {
-      let result = try await ProcessRunner.run(qpdf, arguments: arguments)
+    // GÜVENLİK: qpdf çıktıyı KENDİSİ oluşturuyor (subprocess) — `TempArtifact.withPrivateDirectory`
+    // kullanılıyor (bkz. o tipin gerekçesi).
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      let partial = tempDir.appendingPathComponent("output.pdf")
+      progress(0)
+      let result = try await ProcessRunner.run(
+        qpdf, arguments: arguments + [file.url.path, partial.path])
       guard result.status == 0 || result.status == 3 else {
         throw EngineError.failed(status: result.status, message: result.stderr + result.stdout)
       }
-    } catch is CancellationError {
-      try? fm.removeItem(at: partial)
-      throw CancellationError()
-    } catch {
-      try? fm.removeItem(at: partial)
-      throw error
-    }
-    progress(0.9)
+      progress(0.9)
 
-    // Kanıt: çıktı GERÇEKTEN şifreli mi + doğru parola açıyor mu + YANLIŞ parola açmıyor mu?
-    // (bkz. `EncryptVerification` yorumu — qpdf'in çıkış kodu 0 dönmesi tek başına kanıt değil.)
-    guard EncryptVerification.verify(partial, userPassword: userPassword) else {
-      try? fm.removeItem(at: partial)
-      throw EncryptError.verificationFailed
-    }
+      // Kanıt: çıktı GERÇEKTEN şifreli mi + doğru parola açıyor mu + YANLIŞ parola açmıyor mu?
+      // (bkz. `EncryptVerification` yorumu — qpdf'in çıkış kodu 0 dönmesi tek başına kanıt değil.)
+      guard EncryptVerification.verify(partial, userPassword: userPassword) else {
+        throw EncryptError.verificationFailed
+      }
 
-    try fm.moveItem(at: partial, to: output)
-    progress(1)
-    return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
+      try fm.moveItem(at: partial, to: output)
+      progress(1)
+      return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
+    }
   }
 }
 
