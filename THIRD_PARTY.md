@@ -23,13 +23,13 @@ everything distributed with the app binary, not build/dev-only tooling.
 ## 2. pdfcpu
 
 - **Component:** pdfcpu
-- **Version:** v0.15.0
+- **Version:** v0.16.0
 - **Upstream:** https://github.com/pdfcpu/pdfcpu
 - **Distributed as:** `Contents/Resources/bin/pdfcpu` inside the app bundle (universal arm64+x86_64 binary, `CGO_ENABLED=0`)
 - **License:** Apache License 2.0 (SPDX: `Apache-2.0`)
-- **Full license text:** https://github.com/pdfcpu/pdfcpu/blob/v0.15.0/LICENSE.txt
+- **Full license text:** https://github.com/pdfcpu/pdfcpu/blob/v0.16.0/LICENSE.txt
 - **Attribution / NOTICE:** Same Apache-2.0 obligation as above — preserve the license text with
-  any distribution. pdfcpu's repository does not ship a separate `NOTICE` file at v0.15.0. No
+  any distribution. pdfcpu's repository does not ship a separate `NOTICE` file at v0.16.0. No
   modifications were made to pdfcpu's source in this project.
 
 ## 3. libjpeg-turbo

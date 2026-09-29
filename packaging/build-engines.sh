@@ -9,7 +9,12 @@ ARCHS="arm64;x86_64"
 DEPLOY="14.0"
 QPDF_VER="${QPDF_VER:-12.4.1}"
 JPEG_VER="${JPEG_VER:-$(gh release view -R libjpeg-turbo/libjpeg-turbo --json tagName -q .tagName 2>/dev/null || echo 3.1.2)}"
-PDFCPU_VER="${PDFCPU_VER:-latest}"
+# Pinli: "latest" tekrarlanabilir derleme DEĞİLDİR — hangi kaynaktan derlendiği sonradan
+# doğrulanamaz. v0.16.0, ≤v0.15.0'ı etkileyen 6 güvenlik danışmanlığını kapatıyor
+# (GHSA-w2hj-54mc-76r4 XRef /W tamsayı taşması High, GHSA-fjh6-rrhv-4g63 XRef limit bypass,
+# GHSA-9mmx-88p2-c8c6 görsel çıkarmada sınır taşması — üçü de bizim canlı çağrı yollarımıza
+# (decrypt · images extract · bookmarks) ulaşıyordu).
+PDFCPU_VER="${PDFCPU_VER:-v0.16.0}"
 mkdir -p "$OUT" "$WORK"
 cd "$WORK"
 
@@ -56,11 +61,28 @@ PC
 lipo -info prefix/lib/libjpeg.a
 
 echo "=== pdfcpu $PDFCPU_VER (universal, CGO kapalı) ==="
+# NOT (doğrulandı, golang/go#77917): CGO_ENABLED=0 → Go'nun internal linker'ı kullanılıyor; bu
+# yolda Go ≤1.26 macOS minos'unu HER ZAMAN 12.0'a sabitler, yukarıdaki $DEPLOY (14.0) burada
+# ETKİSİZDİR. qpdf/libjpeg-turbo (CMake+Clang) $DEPLOY'u doğru uyguluyor. 12.0 daha DÜŞÜK bir
+# eşik olduğu için çalışma zamanında sorun yaratmaz, yalnız tutarsız görünür; hizalamak
+# CGO_ENABLED=1'e (dış linker) geçmeyi, yani statik/bağımlılıksız derleme kararını bozmayı
+# gerektirdiğinden bilinçli olarak yapılmadı.
 mkdir -p pdfcpu-mod && cd pdfcpu-mod
 [ -f go.mod ] || go mod init pdfcpu-vendor >/dev/null
 go get "github.com/pdfcpu/pdfcpu/cmd/pdfcpu@$PDFCPU_VER" >/dev/null
+# Sürüm damgası: goreleaser'ın kendi ldflags değişkenleriyle AYNI (pdfcpu .goreleaser.yml).
+# Damgasız derlenen ikili "v0.15.0 dev, commit ?, date ?" diyordu — hangi kaynaktan geldiği
+# ikiliden okunamıyordu, bu da tedarik zinciri denetimini imkânsız kılıyordu.
+PDFCPU_COMMIT="$(git ls-remote https://github.com/pdfcpu/pdfcpu.git \
+  "refs/tags/$PDFCPU_VER" "refs/tags/$PDFCPU_VER^{}" 2>/dev/null | tail -1 | cut -c1-8)"
+[ -n "$PDFCPU_COMMIT" ] || { echo "HATA: pdfcpu $PDFCPU_VER için commit çözülemedi" >&2; exit 1; }
+PDFCPU_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+PDFCPU_LDFLAGS="-s -w -X main.version=$PDFCPU_VER"
+PDFCPU_LDFLAGS+=" -X github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model.VersionStr=$PDFCPU_VER"
+PDFCPU_LDFLAGS+=" -X main.commit=$PDFCPU_COMMIT -X main.date=$PDFCPU_DATE"
 for arch in arm64 amd64; do
-  CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags="-s -w" -o "pdfcpu-$arch" github.com/pdfcpu/pdfcpu/cmd/pdfcpu
+  CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags="$PDFCPU_LDFLAGS" \
+    -o "pdfcpu-$arch" github.com/pdfcpu/pdfcpu/cmd/pdfcpu
 done
 lipo -create pdfcpu-arm64 pdfcpu-amd64 -output "$OUT/pdfcpu"
 lipo -info "$OUT/pdfcpu"

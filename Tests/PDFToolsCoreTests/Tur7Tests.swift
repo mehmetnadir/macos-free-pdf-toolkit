@@ -182,9 +182,12 @@ final class Tur7Tests: XCTestCase {
     let bookmarked = dir.appendingPathComponent("yerimli-kaynak.pdf")
     let setupResult = try await ProcessRunner.run(
       pdfcpu,
-      arguments: [
-        "bookmarks", "import", "--replace", plain.path, bookmarkJSON.path, bookmarked.path,
-      ])
+      // `PDFCPUArgument.disableConfig`: fixture'ı üretirken de ürünün kullandığı argümanlar
+      // kullanılmalı. Ölçüldü (2026-09-29, pdfcpu v0.16.0 takası): bu bayrak olmadan yeni ikili
+      // kullanıcının eski şemalı küresel config'ini görüp "configuration reset required" ile
+      // HER komutu reddediyor — test o zaman ürün kodunu değil KENDİ kurulumunu düşürüyordu.
+      arguments: ["bookmarks", "import", "--replace"] + PDFCPUArgument.disableConfig
+        + ["--", plain.path, bookmarkJSON.path, bookmarked.path])
     XCTAssertEqual(setupResult.status, 0, "fixture kurulumu başarısız: \(setupResult.stderr)")
 
     let outcome = try await BookmarkOperation().run(
