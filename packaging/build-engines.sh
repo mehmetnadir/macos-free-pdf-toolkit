@@ -3,8 +3,10 @@
 # Tekrarlanabilir; internet gerektirir. Çıktı: vendor/bin/qpdf, vendor/bin/pdfcpu
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT="$ROOT/vendor/bin"
-WORK="$ROOT/.build/engines"
+OUT="${OUT:-$ROOT/vendor/bin}"
+WORK="${WORK:-$ROOT/.build/engines}"
+# ENGINES="qpdf" gibi bir değerle yalnız seçili motor derlenir (pdfcpu atlanır); varsayılan ikisi.
+ENGINES="${ENGINES:-qpdf pdfcpu}"
 ARCHS="arm64;x86_64"
 DEPLOY="14.0"
 QPDF_VER="${QPDF_VER:-12.4.1}"
@@ -26,12 +28,12 @@ fi
 cmake --version | head -1
 
 echo "=== libjpeg-turbo $JPEG_VER (statik; mimari başına derlenip lipo ile birleşir) ==="
-if [ ! -f prefix/lib/libjpeg.a ]; then
+if [ ! -f prefix/lib/libjpeg.a ] || ! grep -q "JPEG_LIB_VERSION  80" prefix/include/jconfig.h 2>/dev/null; then
   [ -d "libjpeg-turbo-$JPEG_VER" ] || curl -fsSL "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/$JPEG_VER/libjpeg-turbo-$JPEG_VER.tar.gz" | tar xz
   for arch in arm64 x86_64; do
     cmake -S "libjpeg-turbo-$JPEG_VER" -B "jpeg-build-$arch" -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_OSX_ARCHITECTURES="$arch" -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY" \
-      -DWITH_SIMD=0 -DENABLE_SHARED=0 -DENABLE_STATIC=1 -DWITH_TURBOJPEG=0 \
+      -DWITH_JPEG8=1 -DWITH_SIMD=0 -DENABLE_SHARED=0 -DENABLE_STATIC=1 -DWITH_TURBOJPEG=0 \
       -DCMAKE_INSTALL_PREFIX="$WORK/prefix-$arch" >/dev/null
     cmake --build "jpeg-build-$arch" -j"$(sysctl -n hw.ncpu)" >/dev/null
     cmake --install "jpeg-build-$arch" >/dev/null
@@ -60,6 +62,7 @@ Cflags: -I\${includedir}
 PC
 lipo -info prefix/lib/libjpeg.a
 
+if [[ " $ENGINES " == *" pdfcpu "* ]]; then
 echo "=== pdfcpu $PDFCPU_VER (universal, CGO kapalı) ==="
 # NOT (doğrulandı, golang/go#77917): CGO_ENABLED=0 → Go'nun internal linker'ı kullanılıyor; bu
 # yolda Go ≤1.26 macOS minos'unu HER ZAMAN 12.0'a sabitler, yukarıdaki $DEPLOY (14.0) burada
@@ -88,12 +91,28 @@ lipo -create pdfcpu-arm64 pdfcpu-amd64 -output "$OUT/pdfcpu"
 lipo -info "$OUT/pdfcpu"
 "$OUT/pdfcpu" version | head -1
 cd "$WORK"
+fi
 echo "=== qpdf $QPDF_VER (statik, native crypto, universal) ==="
 [ -d "qpdf-$QPDF_VER" ] || curl -fsSL "https://github.com/qpdf/qpdf/releases/download/v$QPDF_VER/qpdf-$QPDF_VER.tar.gz" | tar xz
 rm -rf qpdf-build  # pkg-config sonucu cache'e yazılır; her seferinde temiz yapılandır
 # qpdf libjpeg'i pkg-config ile arar (JPEG_LIBRARY/JPEG_INCLUDE_DIR qpdf CMake'inde tanınmıyor —
 # unused-cli uyarısı verir, qpdf'in kendi bulma mekanizması yalnızca pkg-config/find_library'dir).
 # PKG_CONFIG_LIBDIR brew'in Intel dylib'i yerine bizim statik fat libjpeg.pc'mizin bulunmasını sağlar.
+# 2026-10-03 KÖK NEDEN (ölçüldü): qpdf'in Pl_DCT.cc'si <jpeglib.h>'ı bizim prefix'imizden DEĞİL
+# /usr/local/include'dan (Homebrew jpeg-turbo 3.2.0, JPEG_LIB_VERSION 80) alıyordu: pkg-config başlık
+# yolunu `-isystem` verir ve Apple clang `-isystem` dizinlerini /usr/local/include'dan SONRA arar
+# (`clang -E -H` ile doğrulandı; aynı dizini ayrıca `-I` vermek de işe yaramaz, clang aynı dizini
+# sistem yoluna eşleyip dedupe ediyor). Başlık 80 → jpeg_CreateDecompress'e 80 geçiyor; bizim libjpeg.a
+# ise WITH_JPEG8 kapalı olduğundan 62 → "Wrong JPEG library version: library is 62, caller expects 80",
+# her JPEG akışı çözülemiyordu. Çözüm: libjpeg-turbo'yu WITH_JPEG8=1 (ABI 80, Homebrew ve çoğu dağıtımla
+# aynı) derlemek — hangi jpeglib.h görülürse görülsün sürüm sabiti kütüphaneyle eşleşir.
+# Doğrulama kapısı: qpdf'in göreceği derleme yolunda JPEG_LIB_VERSION bizim kütüphanemizinkiyle aynı mı?
+OUR_JVER="$(awk '/define JPEG_LIB_VERSION/ {print $3}' "$WORK/prefix/include/jconfig.h")"
+SEEN_JVER="$(echo '#include <jpeglib.h>' | clang -E -dM -x c -isystem "$WORK/prefix/include" - 2>/dev/null | awk '/define JPEG_LIB_VERSION / {print $3; exit}')"
+[ -n "$OUR_JVER" ] && [ "$OUR_JVER" = "$SEEN_JVER" ] || {
+  echo "HATA: JPEG_LIB_VERSION uyuşmazlığı (kütüphane=$OUR_JVER, derleyicinin gördüğü başlık=$SEEN_JVER)" >&2
+  exit 1
+}
 PKG_CONFIG_LIBDIR="$WORK/prefix/lib/pkgconfig" \
 cmake -S "qpdf-$QPDF_VER" -B qpdf-build -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_OSX_ARCHITECTURES="$ARCHS" -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY" \
@@ -116,12 +135,14 @@ mkdir -p "$LIC"
 install -m 644 "$WORK/qpdf-$QPDF_VER/LICENSE.txt" "$LIC/qpdf-LICENSE.txt"
 install -m 644 "$WORK/qpdf-$QPDF_VER/NOTICE.md" "$LIC/qpdf-NOTICE.md"
 install -m 644 "$WORK/libjpeg-turbo-$JPEG_VER/LICENSE.md" "$LIC/libjpeg-turbo-LICENSE.md"
-PDFCPU_LIC="$(find "$(go env GOMODCACHE)/github.com/pdfcpu" -maxdepth 2 -iname 'LICENSE*' | sort | tail -1)"
-if [ -z "$PDFCPU_LIC" ]; then
-  echo "HATA: pdfcpu lisansı bulunamadı — Apache-2.0 dağıtım yükümlülüğü karşılanamaz" >&2
-  exit 1
+if [[ " $ENGINES " == *" pdfcpu "* ]]; then
+  PDFCPU_LIC="$(find "$(go env GOMODCACHE)/github.com/pdfcpu" -maxdepth 2 -iname 'LICENSE*' | sort | tail -1)"
+  if [ -z "$PDFCPU_LIC" ]; then
+    echo "HATA: pdfcpu lisansı bulunamadı — Apache-2.0 dağıtım yükümlülüğü karşılanamaz" >&2
+    exit 1
+  fi
+  install -m 644 "$PDFCPU_LIC" "$LIC/pdfcpu-LICENSE.txt"
 fi
-install -m 644 "$PDFCPU_LIC" "$LIC/pdfcpu-LICENSE.txt"
 ls -l "$LIC"
 
 echo "=== bitti: $(ls -la "$OUT")"
