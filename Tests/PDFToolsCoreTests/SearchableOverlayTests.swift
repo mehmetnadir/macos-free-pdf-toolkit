@@ -60,10 +60,14 @@ final class SearchableOverlayTests: XCTestCase {
   static let pageSizes = [CGSize(width: 1200, height: 1600), CGSize(width: 1000, height: 1400)]
   static let fontSize: CGFloat = 110
 
-  /// Fikstürü yazar; sayfa başına her kelimenin sayfa uzayındaki (orijin SOL-ALT) dikdörtgenini
-  /// döner.
+  /// Fikstürü yazar; sayfa başına her kelimenin sayfa uzayındaki (orijin SOL-ALT, eksen hizalı)
+  /// dikdörtgenini döner. `textAngle` (radyan, saat yönünün tersi) kelimeleri görüntüde yan çizer
+  /// (yan taranmış sayfa / yan tablo); `mark` sayfaya siyah bir kare ekler (görüntü baytı farklı
+  /// ikiz kaynak için).
   @discardableResult
-  static func makeFixture(to url: URL) -> [[String: CGRect]] {
+  static func makeFixture(
+    to url: URL, textAngle: CGFloat = 0, mark: Bool = false
+  ) -> [[String: CGRect]] {
     var rects: [[String: CGRect]] = []
     var dummy = CGRect(x: 0, y: 0, width: 1, height: 1)
     guard let consumer = CGDataConsumer(url: url as CFURL),
@@ -81,9 +85,9 @@ final class SearchableOverlayTests: XCTestCase {
       bitmap.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
       bitmap.fill(CGRect(x: 0, y: 0, width: width, height: height))
       bitmap.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+      if mark { bitmap.fill(CGRect(x: width - 160, y: 40, width: 120, height: 120)) }
       var pageRects: [String: CGRect] = [:]
-      var baseline = size.height - 250
-      for word in script.pages[pageIndex] {
+      for (wordIndex, word) in script.pages[pageIndex].enumerated() {
         let attrs = [kCTFontAttributeName: font] as CFDictionary
         guard let string = CFAttributedStringCreate(nil, word as CFString, attrs) else {
           fatalError("metin")
@@ -92,12 +96,21 @@ final class SearchableOverlayTests: XCTestCase {
         var ascent: CGFloat = 0
         var descent: CGFloat = 0
         let lineWidth = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, nil))
-        let origin = CGPoint(x: 120, y: baseline)
-        bitmap.textPosition = origin
+        // Yatay: alt alta satırlar; yan: yan yana sütunlar (metin aşağıdan yukarı akar).
+        let origin =
+          textAngle == 0
+          ? CGPoint(x: 120, y: size.height - 250 - CGFloat(wordIndex) * 300)
+          : CGPoint(x: 300 + CGFloat(wordIndex) * 300, y: 250)
+        let transform = CGAffineTransform(rotationAngle: textAngle)
+          .concatenating(CGAffineTransform(translationX: origin.x, y: origin.y))
+        bitmap.saveGState()
+        bitmap.concatenate(transform)
+        bitmap.textPosition = .zero
         CTLineDraw(line, bitmap)
+        bitmap.restoreGState()
         pageRects[word] = CGRect(
-          x: origin.x, y: origin.y - descent, width: lineWidth, height: ascent + descent)
-        baseline -= 300
+          x: 0, y: -descent, width: lineWidth, height: ascent + descent
+        ).applying(transform)
       }
       rects.append(pageRects)
       guard let image = bitmap.makeImage() else { fatalError("görüntü") }
@@ -119,11 +132,12 @@ final class SearchableOverlayTests: XCTestCase {
   }
 
   private func runOverlay(
-    _ source: URL, in dir: URL, extra: [String: String] = [:]
+    _ source: URL, in dir: URL, extra: [String: String] = [:],
+    operation: SearchablePDFOperation = SearchablePDFOperation()
   ) async throws -> (url: URL, note: String?) {
     var options = [OCROperation.languageOptionID: Self.script.languageKey]
     options.merge(extra) { _, new in new }
-    let outcome = try await SearchablePDFOperation().run(
+    let outcome = try await operation.run(
       file: PDFFileInfo.inspect(source),
       context: OperationContext(outputDirectory: dir, options: options)
     ) { _ in }
@@ -197,8 +211,8 @@ final class SearchableOverlayTests: XCTestCase {
     Self.makeFixture(to: source)
     let (output, _) = try await runOverlay(source, in: dir)
 
-    let before = try XCTUnwrap(PDFImageIdentity.pageImageHashes(at: source))
-    let after = try XCTUnwrap(PDFImageIdentity.pageImageHashes(at: output))
+    let before = try XCTUnwrap(try PDFImageIdentity.pageImageHashes(at: source))
+    let after = try XCTUnwrap(try PDFImageIdentity.pageImageHashes(at: output))
     XCTAssertEqual(before.count, 2)
     XCTAssertTrue(before.allSatisfy { $0.count == 1 }, "sayfa başına tek görüntü bekleniyordu")
     // qpdf kaynağın içeriğini Form XObject'e sarıyor — gezinti formun İÇİNE inmeseydi çıktı
@@ -293,8 +307,12 @@ final class SearchableOverlayTests: XCTestCase {
           normalized(selected).contains(normalized(word)),
           "sayfa \(index + 1): \(word) dikdörtgeninde seçilen \"\(selected)\"",
           file: file, line: line)
-        // Basılı kelimenin dışında (aynı yükseklikte, sağda boş alan) metin YOK.
-        let beside = CGRect(x: rect.maxX + 60, y: rect.minY, width: 200, height: rect.height)
+        // Basılı kelimenin dışında (okuma yönünde, kelimenin bittiği yerden sonraki boş alan)
+        // metin YOK — yatay kelimede sağı, yan (aşağıdan yukarı) kelimede üstü.
+        let beside =
+          rect.height > rect.width
+          ? CGRect(x: rect.minX, y: rect.maxY + 60, width: rect.width, height: 200)
+          : CGRect(x: rect.maxX + 60, y: rect.minY, width: 200, height: rect.height)
         let stray = page.selection(for: beside)?.string ?? ""
         XCTAssertTrue(
           stray.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -319,27 +337,83 @@ final class SearchableOverlayTests: XCTestCase {
   /// 2709 773.7 cm` ile döndürülüp küçültülüyordu. Katmana kaynakla aynı `/Rotate` verilerek
   /// (`OCRTextLayer.rotationArguments`) net dönüşüm birim matrise iner — bu test o telafiyi
   /// çiviler: telafi kaldırılırsa hizalama iddiası düşer.
-  func testRotatedPageKeepsTextAndAlignment() async throws {
-    let qpdf = try qpdf()
-    let dir = try makeTempDirectory()
-    let plain = dir.appendingPathComponent("duz.pdf")
-    let rects = Self.makeFixture(to: plain)
-    let rotated = dir.appendingPathComponent("doner.pdf")
-    let rotateRun = try await ProcessRunner.run(
-      qpdf, arguments: [plain.path, "--rotate=+90:1", "--", rotated.path])
-    XCTAssertTrue(rotateRun.status == 0 || rotateRun.status == 3, rotateRun.stderr)
-    let rotatedDoc = try XCTUnwrap(CGPDFDocument(rotated as CFURL))
-    XCTAssertEqual(rotatedDoc.page(at: 1)?.rotationAngle, 90)
-    XCTAssertEqual(OCRTextLayer.rotationArguments(for: rotatedDoc), ["--rotate=+90:1"])
+  /// Parametreli: +90, +180, +270 ve sayfa başına karışık (`+90:1 +270:2`).
+  func testRotatedPagesKeepTextAndAlignment() async throws {
+    let cases: [(args: [String], angles: [Int32])] = [
+      (["--rotate=+90:1"], [90, 0]),
+      (["--rotate=+180:1"], [180, 0]),
+      (["--rotate=+270:1"], [270, 0]),
+      (["--rotate=+90:1", "--rotate=+270:2"], [90, 270]),
+    ]
+    for testCase in cases {
+      let dir = try makeTempDirectory()
+      let plain = dir.appendingPathComponent("duz.pdf")
+      let rects = Self.makeFixture(to: plain)
+      let rotated = try await rotate(plain, testCase.args, in: dir)
+      let rotatedDoc = try XCTUnwrap(CGPDFDocument(rotated as CFURL))
+      XCTAssertEqual(
+        try OCRTextLayer.rotationArguments(for: rotatedDoc), testCase.args, "\(testCase.args)")
 
-    let (output, _) = try await runOverlay(rotated, in: dir)
-    let outputDoc = try XCTUnwrap(CGPDFDocument(output as CFURL))
-    XCTAssertEqual(outputDoc.page(at: 1)?.rotationAngle, 90, "kaynağın /Rotate'i korunmalı")
-    XCTAssertEqual(outputDoc.page(at: 2)?.rotationAngle, 0)
-    let text = PDFDocument(url: output)?.page(at: 0)?.string ?? ""
-    XCTAssertTrue(
-      normalized(text).contains(normalized(Self.script.anchorWord)), "metin yok: \(text)")
+      let (output, _) = try await runOverlay(rotated, in: dir)
+      let outputDoc = try XCTUnwrap(CGPDFDocument(output as CFURL))
+      for (index, angle) in testCase.angles.enumerated() {
+        XCTAssertEqual(
+          outputDoc.page(at: index + 1)?.rotationAngle, angle,
+          "\(testCase.args) sayfa \(index + 1): kaynağın /Rotate'i korunmalı")
+      }
+      let text = PDFDocument(url: output)?.page(at: 0)?.string ?? ""
+      XCTAssertTrue(
+        normalized(text).contains(normalized(Self.script.anchorWord)),
+        "\(testCase.args): metin yok: \(text)")
+      try assertAligned(output: output, rects: rects)
+    }
+  }
+
+  private func rotate(_ source: URL, _ args: [String], in dir: URL) async throws -> URL {
+    let rotated = dir.appendingPathComponent("doner.pdf")
+    let run = try await ProcessRunner.run(
+      try qpdf(), arguments: [source.path] + args + ["--", rotated.path])
+    XCTAssertTrue(run.status == 0 || run.status == 3, run.stderr)
+    return rotated
+  }
+
+  // MARK: - (8b) yan metin (inceleme bulgusu 4)
+
+  /// Gerçek döndürülmüş tarama: içerik görüntüde YAN (90° saat yönünün tersi), `/Rotate 90`
+  /// sayfayı dik gösteriyor. Vision yan metni okuyor; katman kelimeyi o açıda çizmezse PDFKit
+  /// seçimi basılı kelimeye düşmez.
+  func testSidewaysScanWithRotateKeepsTextAndAlignment() async throws {
+    let dir = try makeTempDirectory()
+    let sideways = dir.appendingPathComponent("yan.pdf")
+    let rects = Self.makeFixture(to: sideways, textAngle: .pi / 2)
+    let upright = try await rotate(sideways, ["--rotate=+90"], in: dir)
+    let (output, _) = try await runOverlay(upright, in: dir)
+    try assertTextOnEveryPage(output)
     try assertAligned(output: output, rects: rects)
+  }
+
+  /// Kitap içindeki yan tablo: `/Rotate` YOK, metin sayfada yan duruyor.
+  func testSidewaysTextWithoutRotateKeepsTextAndAlignment() async throws {
+    let dir = try makeTempDirectory()
+    let sideways = dir.appendingPathComponent("yan-tablo.pdf")
+    let rects = Self.makeFixture(to: sideways, textAngle: .pi / 2)
+    let (output, _) = try await runOverlay(sideways, in: dir)
+    try assertTextOnEveryPage(output)
+    try assertAligned(output: output, rects: rects)
+  }
+
+  private func assertTextOnEveryPage(
+    _ output: URL, file: StaticString = #filePath, line: UInt = #line
+  ) throws {
+    let doc = try XCTUnwrap(PDFDocument(url: output), file: file, line: line)
+    for (index, words) in Self.script.pages.enumerated() {
+      let text = doc.page(at: index)?.string ?? ""
+      for word in words {
+        XCTAssertTrue(
+          normalized(text).contains(normalized(word)),
+          "sayfa \(index + 1): \(word) yok — PDFKit metni: \(text)", file: file, line: line)
+      }
+    }
   }
 
   // MARK: - (9) redraw kipi
@@ -443,5 +517,266 @@ final class SearchableOverlayTests: XCTestCase {
       XCTAssertEqual(
         error as? SearchablePDFError, .layerPageCount(expected: 2, actual: 1))
     }
+  }
+
+  // MARK: - Kapı RET testleri (inceleme bulgusu 1 ve 7)
+  //
+  // Bindirilmiş ara çıktı, kapılardan ÖNCE `afterOverlay` kancasıyla bozulur. Her test doğru
+  // hatanın fırladığını VE çıktı dizininde kaynaktan başka dosya kalmadığını sınar. Yardımcı
+  // dosyalar ayrı bir dizinde üretilir.
+
+  /// `dir` içinde kaynağı üretir, kancalı işlemi koşturur, hatayı döner; dizinde artık dosya
+  /// kalmadığını doğrular.
+  private func rejection(
+    hook: @escaping @Sendable (_ output: URL, _ source: URL) async throws -> Void,
+    file: StaticString = #filePath, line: UInt = #line
+  ) async throws -> Error? {
+    _ = try qpdf()
+    let dir = try makeTempDirectory()
+    let source = dir.appendingPathComponent("kaynak.pdf")
+    Self.makeFixture(to: source)
+    var thrown: Error?
+    do {
+      _ = try await runOverlay(
+        source, in: dir, operation: SearchablePDFOperation(afterOverlay: hook))
+      XCTFail("bozuk çıktı kapılardan geçti", file: file, line: line)
+    } catch {
+      thrown = error
+    }
+    let leftovers = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+      .filter { $0 != "kaynak.pdf" }
+    XCTAssertEqual(leftovers, [], "reddedilen çıktı dosya bıraktı", file: file, line: line)
+    return thrown
+  }
+
+  /// `output`u `qpdf <alt> --overlay <üst> -- tmp` sonucuyla değiştirir.
+  private static func replaceWithOverlay(
+    output: URL, under: URL, over: URL, qpdf: URL
+  ) async throws {
+    let temporary = output.deletingLastPathComponent().appendingPathComponent("bozuk.pdf")
+    let run = try await ProcessRunner.run(
+      qpdf, arguments: [under.path, "--overlay", over.path, "--", temporary.path])
+    guard run.status == 0 || run.status == 3 else { throw UnexpectedOutcome() }
+    try FileManager.default.removeItem(at: output)
+    try FileManager.default.moveItem(at: temporary, to: output)
+  }
+
+  /// Fikstürle aynı sayfa kutularında vektör PDF; `draw` her sayfaya çizer.
+  private static func makeVectorPages(
+    to url: URL, draw: (CGContext, Int, CGSize) -> Void
+  ) {
+    var dummy = CGRect(x: 0, y: 0, width: 1, height: 1)
+    guard let consumer = CGDataConsumer(url: url as CFURL),
+      let pdf = CGContext(consumer: consumer, mediaBox: &dummy, nil)
+    else { fatalError("PDF bağlamı") }
+    for (index, size) in pageSizes.enumerated() {
+      var box = CGRect(origin: .zero, size: size)
+      let info: [CFString: Any] = [
+        kCGPDFContextMediaBox: Data(bytes: &box, count: MemoryLayout<CGRect>.size) as CFData
+      ]
+      pdf.beginPDFPage(info as CFDictionary)
+      draw(pdf, index, size)
+      pdf.endPDFPage()
+    }
+    pdf.closePDF()
+  }
+
+  /// Kapı c: görüntü baytı farklı ikiz kaynak, çıktının ALTINA bindirilir → görüntü listesi
+  /// değişir.
+  func testGateCRejectsChangedImageBytes() async throws {
+    let qpdf = try qpdf()
+    let aux = try makeTempDirectory()
+    let twin = aux.appendingPathComponent("ikiz.pdf")
+    Self.makeFixture(to: twin, mark: true)
+    let error = try await rejection { output, _ in
+      try await Self.replaceWithOverlay(output: output, under: twin, over: output, qpdf: qpdf)
+    }
+    XCTAssertEqual(error as? SearchablePDFError, .imagesChanged(pages: [1, 2]))
+  }
+
+  /// Kapı d: çıktı metinsiz kaynağın kopyasıyla değiştirilir → metin bulunamaz.
+  func testGateDRejectsOutputWithoutText() async throws {
+    let error = try await rejection { output, source in
+      try FileManager.default.removeItem(at: output)
+      try FileManager.default.copyItem(at: source, to: output)
+    }
+    XCTAssertEqual(error as? SearchablePDFError, .textNotFound(page: 1))
+  }
+
+  /// Kapı d (konum, bulgu 7): metin sayfada VAR ama 550 pt sağa kaymış → `textMisplaced`.
+  /// Konum kontrolü kaldırılırsa bu test kırmızı verir (yalnız "sayfada var mı" geçerdi).
+  func testGateDRejectsMisplacedText() async throws {
+    let qpdf = try qpdf()
+    let aux = try makeTempDirectory()
+    let shifted = aux.appendingPathComponent("kayik.pdf")
+    let font = CTFontCreateWithName("Helvetica" as CFString, Self.fontSize, nil)
+    Self.makeVectorPages(to: shifted) { ctx, index, size in
+      for (wordIndex, word) in Self.script.pages[index].enumerated() {
+        let attrs = [kCTFontAttributeName: font] as CFDictionary
+        guard let string = CFAttributedStringCreate(nil, word as CFString, attrs) else { return }
+        ctx.setTextDrawingMode(.invisible)
+        ctx.textPosition = CGPoint(x: 120 + 550, y: size.height - 250 - CGFloat(wordIndex) * 300)
+        CTLineDraw(CTLineCreateWithAttributedString(string), ctx)
+      }
+    }
+    let error = try await rejection { output, source in
+      try await Self.replaceWithOverlay(output: output, under: source, over: shifted, qpdf: qpdf)
+    }
+    XCTAssertEqual(error as? SearchablePDFError, .textMisplaced(page: 1))
+  }
+
+  /// Kapı e: metin yerinde, görüntü baytları aynı, ama sayfaya GÖRÜNÜR bir vektör kare çizilmiş.
+  func testGateERejectsVisibleDrawing() async throws {
+    let qpdf = try qpdf()
+    let aux = try makeTempDirectory()
+    let box = aux.appendingPathComponent("kare.pdf")
+    Self.makeVectorPages(to: box) { ctx, _, size in
+      ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+      ctx.fill(CGRect(x: size.width - 450, y: 40, width: 400, height: 400))
+    }
+    let error = try await rejection { output, _ in
+      try await Self.replaceWithOverlay(output: output, under: output, over: box, qpdf: qpdf)
+    }
+    guard case .visualChange(let page, let diff) = error as? SearchablePDFError else {
+      return XCTFail("visualChange bekleniyordu: \(String(describing: error))")
+    }
+    XCTAssertEqual(page, 1)
+    XCTAssertGreaterThan(diff, 0.5 / 255)
+  }
+
+  /// Kapı f: kaynağın değişiklik zamanı işlem sırasında oynatılır.
+  func testGateFRejectsModifiedSource() async throws {
+    let error = try await rejection { _, source in
+      try FileManager.default.setAttributes(
+        [.modificationDate: Date(timeIntervalSince1970: 1_000_000)], ofItemAtPath: source.path)
+    }
+    XCTAssertEqual(error as? SearchablePDFError, .sourceModified)
+  }
+
+  // MARK: - Mevcut metin katmanı (bulgu 8)
+
+  func testExistingTextLayerIsSkipped() async throws {
+    let dir = try makeTempDirectory()
+    let source = dir.appendingPathComponent("metinli.pdf")
+    let font = CTFontCreateWithName("Helvetica" as CFString, 40, nil)
+    Self.makeVectorPages(to: source) { ctx, _, _ in
+      let attrs = [kCTFontAttributeName: font] as CFDictionary
+      guard let string = CFAttributedStringCreate(nil, "already text" as CFString, attrs) else {
+        return
+      }
+      ctx.textPosition = CGPoint(x: 100, y: 300)
+      CTLineDraw(CTLineCreateWithAttributedString(string), ctx)
+    }
+    for mode in [SearchablePDFOperation.overlayMode, SearchablePDFOperation.redrawMode] {
+      let outcome = try await SearchablePDFOperation().run(
+        file: PDFFileInfo.inspect(source),
+        context: OperationContext(
+          outputDirectory: dir, options: [SearchablePDFOperation.modeOptionID: mode])
+      ) { _ in }
+      XCTAssertEqual(
+        outcome, .skipped(reason: SearchablePDFOperation.existingTextLayerReason), mode)
+    }
+  }
+
+  // MARK: - Okunamayan görüntü akışı (bulgu 3)
+
+  /// Elle yazılmış PDF: görüntü akışı `/FlateDecode` diyor ama baytlar çöp. İki tarafta da
+  /// "okunamadı" görmek eşitlik DEĞİLDİR — kimlik fırlatmalı.
+  func testUnreadableImageStreamThrows() throws {
+    let dir = try makeTempDirectory()
+    let url = dir.appendingPathComponent("bozuk-goruntu.pdf")
+    try Self.writeRawPDF(
+      to: url,
+      objects: [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /XObject << /Im1 5 0 R >> >> >>",
+        // Kaynaklar sayfada DEĞİL, Pages düğümünde — kalıtım da (bulgu 10) bu dosyayla sınanır.
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>",
+        "<< /Length 30 >>\nstream\nq 100 0 0 100 0 0 cm /Im1 Do Q\nendstream",
+        "<< /Type /XObject /Subtype /Image /Width 10 /Height 10 /ColorSpace /DeviceGray "
+          + "/BitsPerComponent 8 /Filter /FlateDecode /Length 16 >>\nstream\n"
+          + "THIS IS NOT ZLIB\nendstream",
+      ])
+    let page = try XCTUnwrap(CGPDFDocument(url as CFURL)?.page(at: 1))
+    var seen = 0
+    PDFImageIdentity.forEachImageStream(in: page) { _ in seen += 1 }
+    XCTAssertEqual(seen, 1, "Pages düğümünden kalıtılan görüntü görülmedi")
+    XCTAssertThrowsError(try PDFImageIdentity.pageImageHashes(at: url)) { error in
+      XCTAssertEqual(error as? PDFImageIdentity.UnreadableImage, .init(page: 1))
+    }
+  }
+
+  /// Nesne listesinden (1 tabanlı numaralı) geçerli xref'li bir PDF yazar.
+  static func writeRawPDF(to url: URL, objects: [String]) throws {
+    var data = Data("%PDF-1.4\n".utf8)
+    var offsets: [Int] = []
+    for (index, body) in objects.enumerated() {
+      offsets.append(data.count)
+      data.append(Data("\(index + 1) 0 obj\n\(body)\nendobj\n".utf8))
+    }
+    let xref = data.count
+    var table = "xref\n0 \(objects.count + 1)\n0000000000 65535 f \n"
+    for offset in offsets { table += String(format: "%010d 00000 n \n", offset) }
+    table += "trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n"
+    data.append(Data(table.utf8))
+    try data.write(to: url)
+  }
+
+  // MARK: - Render edilemeyen sayfa (bulgu 2) ve dpi kırpma (bulgu 5)
+
+  func testUnrenderablePageThrowsInsteadOfCountingAsBlank() throws {
+    let dir = try makeTempDirectory()
+    let url = dir.appendingPathComponent("bos-kutu.pdf")
+    try Self.writeRawPDF(
+      to: url,
+      objects: [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 0 0] >>",
+      ])
+    let document = try XCTUnwrap(CGPDFDocument(url as CFURL))
+    let page = try XCTUnwrap(document.page(at: 1))
+    XCTAssertThrowsError(
+      try OCRVerification.recognizeObservations(
+        onPage: page, scale: 1, languages: ["en-US"], level: .fast)
+    ) { error in XCTAssertTrue(error is OCRVerification.RenderError, "\(error)") }
+    XCTAssertThrowsError(
+      try OCRTextLayer.write(
+        document: document, to: dir.appendingPathComponent("katman.pdf"),
+        languages: ["en-US"], resolution: .native(fallbackDPI: 200), progress: { _ in })
+    ) { error in XCTAssertEqual(error as? SearchablePDFError, .pageUnreadable(page: 1)) }
+  }
+
+  func testRenderScaleIsClampedForExtremeDPI() throws {
+    let dir = try makeTempDirectory()
+    let source = dir.appendingPathComponent("kaynak.pdf")
+    Self.makeFixture(to: source)
+    let page = try XCTUnwrap(CGPDFDocument(source as CFURL)?.page(at: 1))
+    XCTAssertEqual(OCRTextLayer.renderScale(for: page, resolution: .dpi(.infinity)), 6)
+    XCTAssertEqual(OCRTextLayer.renderScale(for: page, resolution: .dpi(100_000)), 6)
+    XCTAssertEqual(OCRTextLayer.renderScale(for: page, resolution: .dpi(1)), 0.5)
+    XCTAssertEqual(OCRTextLayer.renderScale(for: page, resolution: .dpi(.nan)), 1)
+    XCTAssertEqual(OCROperation.resolution(from: "inf"), .dpi(.infinity))
+  }
+
+  // MARK: - Sıfır boyutlu kutu çizilmez ve sayılmaz (bulgu 11)
+
+  func testZeroSizeWordIsNotDrawnOrCounted() throws {
+    var box = CGRect(x: 0, y: 0, width: 100, height: 100)
+    let data = NSMutableData()
+    let consumer = try XCTUnwrap(CGDataConsumer(data: data as CFMutableData))
+    let ctx = try XCTUnwrap(CGContext(consumer: consumer, mediaBox: &box, nil))
+    ctx.beginPDFPage(nil)
+    let point = CGPoint(x: 0.5, y: 0.5)
+    let flat = OCRTextLayer.Word(
+      text: "x", bottomLeft: point, bottomRight: point, topLeft: point, confidence: 1,
+      endsLine: true)
+    XCTAssertNil(OCRTextLayer.drawInvisible(flat, pageBox: box, into: ctx))
+    let real = OCRTextLayer.Word(
+      text: "x", bottomLeft: point, bottomRight: CGPoint(x: 0.7, y: 0.5),
+      topLeft: CGPoint(x: 0.5, y: 0.6), confidence: 1, endsLine: true)
+    XCTAssertNotNil(OCRTextLayer.drawInvisible(real, pageBox: box, into: ctx))
+    ctx.endPDFPage()
+    ctx.closePDF()
   }
 }

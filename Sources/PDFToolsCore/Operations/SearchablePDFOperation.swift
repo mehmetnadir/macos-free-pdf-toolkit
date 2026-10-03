@@ -51,10 +51,26 @@ public struct SearchablePDFOperation: PDFOperation {
   /// qpdf'i bulan fonksiyon — testler "qpdf yok" durumunu buradan kurar (CI'da Homebrew qpdf'i
   /// `EngineLocator` aramasından çıkarmanın yolu yok).
   let locateQPDF: @Sendable () -> URL?
+  /// YALNIZ TESTLER: bindirilmiş ara çıktı (`output`) kapılardan ÖNCE bozulabilsin diye kanca —
+  /// kapıların gerçekten reddettiği ve reddedilen çıktının görünür ada sızmadığı uçtan uca
+  /// sınanır (inceleme 2026-10-03: kapılar kapatılınca hiçbir test kırmızı vermiyordu).
+  let afterOverlay: (@Sendable (_ output: URL, _ source: URL) async throws -> Void)?
 
-  public init() { self.locateQPDF = { EngineLocator.find("qpdf") } }
+  /// Var olan metin katmanına ikinci bir katman eklenmez (arama sonuçları çiftlenirdi).
+  public static let existingTextLayerReason = "already has a text layer — would add a second one"
 
-  init(locateQPDF: @escaping @Sendable () -> URL?) { self.locateQPDF = locateQPDF }
+  public init() {
+    self.locateQPDF = { EngineLocator.find("qpdf") }
+    self.afterOverlay = nil
+  }
+
+  init(
+    locateQPDF: @escaping @Sendable () -> URL? = { EngineLocator.find("qpdf") },
+    afterOverlay: (@Sendable (_ output: URL, _ source: URL) async throws -> Void)? = nil
+  ) {
+    self.locateQPDF = locateQPDF
+    self.afterOverlay = afterOverlay
+  }
 
   public var options: [OperationOption] {
     [
@@ -86,6 +102,11 @@ public struct SearchablePDFOperation: PDFOperation {
     }
     let total = document.numberOfPages
     guard total > 0 else { return .skipped(reason: "No pages") }
+    // Çift katman önlenir: metni zaten aranabilir dosyaya ikinci görünmez katman eklemek arama
+    // sonuçlarını ve kopyalanan metni çiftler (inceleme 2026-10-03).
+    if OCRVerification.hasExistingTextLayer(at: file.url) {
+      return .skipped(reason: Self.existingTextLayerReason)
+    }
 
     let languageKey = context.options[OCROperation.languageOptionID] ?? "tr"
     let languages =
@@ -124,7 +145,7 @@ public struct SearchablePDFOperation: PDFOperation {
       try Self.checkLayerPageCount(layer: layer, expected: total)
 
       // 3. Döndürülmüş sayfa telafisi (bkz. `OCRTextLayer.rotationArguments`, ölçüm orada).
-      let rotation = OCRTextLayer.rotationArguments(for: document)
+      let rotation = try OCRTextLayer.rotationArguments(for: document)
       var placedLayer = layer
       if !rotation.isEmpty {
         let rotated = tempDir.appendingPathComponent("layer-rotated.pdf")
@@ -153,6 +174,7 @@ public struct SearchablePDFOperation: PDFOperation {
         FileManager.default.fileExists(atPath: partial.path)
       else { throw SearchablePDFError.overlayFailed(overlayRun.stderr) }
       progress(0.9)
+      if let afterOverlay { try await afterOverlay(partial, file.url) }
 
       // 5. Kapılar (sırayla; biri düşerse fırlatır, çıktı özel dizinle birlikte silinir).
       try await Self.verifyOverlay(
@@ -202,15 +224,26 @@ public struct SearchablePDFOperation: PDFOperation {
     }
 
     // c. Görüntü kimliği (süreç içi, alt süreç yok).
-    guard let sourceImages = PDFImageIdentity.pageImageHashes(at: source),
-      let outputImages = PDFImageIdentity.pageImageHashes(at: output)
-    else { throw SearchablePDFError.gateUnverifiable("image streams could not be read") }
+    // Okunamayan akış iki tarafta da "okunamadı" görünse bile EŞİTLİK sayılmaz — ölçülemedi.
+    let sourceImages: [[String]]?
+    let outputImages: [[String]]?
+    do {
+      sourceImages = try PDFImageIdentity.pageImageHashes(at: source)
+      outputImages = try PDFImageIdentity.pageImageHashes(at: output)
+    } catch let error as PDFImageIdentity.UnreadableImage {
+      throw SearchablePDFError.gateUnverifiable(error.errorDescription ?? "image unreadable")
+    }
+    guard let sourceImages, let outputImages else {
+      throw SearchablePDFError.gateUnverifiable("image streams could not be read")
+    }
     let changed = PDFImageIdentity.changedPages(source: sourceImages, output: outputImages)
     guard changed.isEmpty else { throw SearchablePDFError.imagesChanged(pages: changed) }
 
-    // d. Metin: örnek metni olan sayfaların ilki, ortası, sonuncusu.
+    // d. Metin: örnek metni olan sayfaların ilki, ortası, sonuncusu. Örnek = sayfanın EN UZUN
+    // satırı; hem sayfada VAR mı hem de OCR'ın bulduğu KONUMDA mı (PDFKit seçimi) sınanır —
+    // katman kayarsa metin sayfada durur ama yerinde olmaz.
     let samples = result.pages.compactMap { stats in
-      stats.sampleText.map { (page: stats.pageIndex, text: $0) }
+      stats.sampleText.map { (page: stats.pageIndex, text: $0, rect: stats.sampleRect) }
     }
     for sample in spread(samples) {
       guard
@@ -218,6 +251,17 @@ public struct SearchablePDFOperation: PDFOperation {
           pdfAt: output, pageIndex: sample.page, expectedSubstring: sample.text,
           ignoringWhitespace: true)
       else { throw SearchablePDFError.textNotFound(page: sample.page) }
+      guard let rect = sample.rect else {
+        throw SearchablePDFError.textMisplaced(page: sample.page)
+      }
+      // Pay = bir satır yüksekliği: daha dar payda PDFKit satır sonundaki noktayı seçmedi
+      // (gerçek kitap sayfasında ölçüldü — "…bulunmalıdır." → "…bulunmalıdır").
+      let pad = min(rect.width, rect.height)
+      guard
+        OCRVerification.selectionContains(
+          pdfAt: output, pageIndex: sample.page, rect: rect.insetBy(dx: -pad, dy: -pad),
+          expectedSubstring: sample.text)
+      else { throw SearchablePDFError.textMisplaced(page: sample.page) }
     }
 
     // e. Piksel sadakati: ilk/orta/son sayfa, uzun kenar ≈ 600 px.
@@ -467,6 +511,8 @@ public enum SearchablePDFError: Error, LocalizedError, Equatable {
   case imagesChanged(pages: [Int])
   /// Tanınan örnek metin çıktının bu sayfasında PDFKit ile bulunamadı.
   case textNotFound(page: Int)
+  /// Örnek metin sayfada var ama OCR'ın bulduğu konumda seçilmiyor (katman kaymış).
+  case textMisplaced(page: Int)
   /// Çıktı kaynaktan görsel olarak farklı (kanal başına ortalama fark, 0…1).
   case visualChange(page: Int, meanDiff: Double)
   /// Kaynak dosya işlem sırasında değişti (boyut ya da değişiklik zamanı).
@@ -495,6 +541,8 @@ public enum SearchablePDFError: Error, LocalizedError, Equatable {
     case .imagesChanged(let pages):
       let list = pages.prefix(10).map(String.init).joined(separator: ", ")
       return "Images changed on page(s) \(list) — output deleted"
+    case .textMisplaced(let page):
+      return "Text layer on page \(page) is not aligned with the printed text — output deleted"
     case .textNotFound(let page):
       return "Recognized text could not be found on page \(page) of the output — output deleted"
     case .visualChange(let page, let meanDiff):

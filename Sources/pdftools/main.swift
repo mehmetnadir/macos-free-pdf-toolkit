@@ -290,8 +290,10 @@ case "ocr", "searchable":
     guard index < arguments.count else { usage() }
     let değer = arguments[index]
     // Tanınmayan değer sessizce varsayılana DÜŞMEZ — kullanım hatası.
+    // `--dpi` yalnız listedeki değerler: `inf` SIGTRAP, `100000` SIGKILL üretiyordu (inceleme
+    // 2026-10-03); çekirdek ölçeği ayrıca kırpar, CLI hiç kabul etmez.
     if anahtar == OCROperation.dpiOptionID,
-      değer != "auto", (Double(değer) ?? 0) <= 0
+      !OCROperation.dpiChoices.contains(where: { $0.value == değer })
     { usage() }
     if anahtar == SearchablePDFOperation.modeOptionID,
       !SearchablePDFOperation.modeChoices.contains(where: { $0.value == değer })

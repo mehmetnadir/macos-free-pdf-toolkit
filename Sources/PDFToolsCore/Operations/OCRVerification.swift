@@ -52,7 +52,8 @@ public enum OCRVerification {
   }
 
   /// `page`'i `dpi`'de beyaz zemin üstüne render edip Vision ile üstündeki metni tanır. Sayfa
-  /// kutusu dejenereyse ya da render başarısızsa boş dizi döner (hata FIRLATMAZ); Vision'ın
+  /// kutusu dejenereyse ya da render başarısızsa `RenderError` FIRLATIR (2026-10-03'e dek boş
+  /// dizi dönüyordu — sayfa "metinsiz" görünüyordu); Vision'ın
   /// `perform` çağrısı hata verirse o hatayı ÜST çağırana yansıtır (Vision içi bir hata gerçek
   /// arıza sayılır, "bulunamadı" ile karıştırılmaz). `recognizeText(onPage:scale:…)`'in dpi
   /// cinsinden kısayolu.
@@ -82,27 +83,44 @@ public enum OCRVerification {
     }
   }
 
+  /// Sayfa tanıma için render EDİLEMEDİ (dejenere kutu, bitmap ya da görüntü kurulamadı). Boş
+  /// dizi döndürmek bu sayfayı "metinsiz" gösterirdi — "ölçemedim" boş sayfa DEĞİLDİR (inceleme
+  /// 2026-10-03), bu yüzden fırlatılır.
+  public struct RenderError: Error, LocalizedError, Equatable {
+    public let detail: String
+    public var errorDescription: String? {
+      "Page could not be rendered for text recognition (\(detail))"
+    }
+  }
+
+  /// Tanıma bitmap'inin uzun kenar tavanı (px): kırpılmış ölçekte bile dev bir MediaBox
+  /// gigabaytlık bitmap istemesin.
+  static let maxRenderLongSide: CGFloat = 12_000
+
   /// Ham Vision gözlemleri — `OCRTextLayer` kelime kutularını (`boundingBox(for:)`) buradan alır.
-  /// Render bitmap'i yalnız bu çağrı boyunca yaşar.
+  /// Render bitmap'i yalnız bu çağrı boyunca yaşar. Render edilemezse `RenderError` fırlatır.
   static func recognizeObservations(
-    onPage page: CGPDFPage, scale: CGFloat, languages: [String],
+    onPage page: CGPDFPage, scale requestedScale: CGFloat, languages: [String],
     level: VNRequestTextRecognitionLevel, usesLanguageCorrection: Bool = true
   ) throws -> [VNRecognizedTextObservation] {
     let box = page.getBoxRect(.mediaBox)
-    guard box.width > 0, box.height > 0, scale > 0 else { return [] }
+    guard box.width > 0, box.height > 0, requestedScale > 0, requestedScale.isFinite else {
+      throw RenderError(detail: "empty page box or invalid scale")
+    }
+    let scale = min(requestedScale, maxRenderLongSide / max(box.width, box.height))
     let width = max(1, Int((box.width * scale).rounded(.up)))
     let height = max(1, Int((box.height * scale).rounded(.up)))
     guard
       let ctx = CGContext(
         data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
         space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
-    else { return [] }
+    else { throw RenderError(detail: "bitmap \(width)×\(height) could not be created") }
     ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
     ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
     ctx.scaleBy(x: scale, y: scale)
     ctx.translateBy(x: -box.origin.x, y: -box.origin.y)
     ctx.drawPDFPage(page)
-    guard let image = ctx.makeImage() else { return [] }
+    guard let image = ctx.makeImage() else { throw RenderError(detail: "image not created") }
 
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = level
@@ -194,6 +212,20 @@ public enum OCRVerification {
     func squeeze(_ value: String) -> String { value.filter { !$0.isWhitespace } }
     let needle = squeeze(expectedSubstring)
     return !needle.isEmpty && squeeze(text).contains(needle)
+  }
+
+  /// Konum kanıtı: `rect` (sayfa uzayı, MediaBox, orijin SOL-ALT) PDFKit'te seçildiğinde
+  /// `expectedSubstring`'i (boşluksuz kıyas) veriyor mu. Metin sayfada var ama başka yerdeyse
+  /// (katman kaymış) `searchablePageContains` geçer, bu düşer. `pageIndex` 1-tabanlı.
+  public static func selectionContains(
+    pdfAt url: URL, pageIndex: Int, rect: CGRect, expectedSubstring: String
+  ) -> Bool {
+    guard let document = PDFDocument(url: url), let page = document.page(at: pageIndex - 1),
+      let selected = page.selection(for: rect)?.string
+    else { return false }
+    func squeeze(_ value: String) -> String { value.filter { !$0.isWhitespace } }
+    let needle = squeeze(expectedSubstring)
+    return !needle.isEmpty && squeeze(selected).contains(needle)
   }
 
   private struct RenderedRGBA {
