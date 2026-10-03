@@ -84,8 +84,29 @@ guard let command = arguments.first else { usage() }
 
 /// Ortak seçenek ayrıştırıcı: `--out`/`-o` ve düz konumsal argümanları (dosya/klasör) ayırır;
 /// `extra` ile alt komuta özgü bayraklar (ör. `--password`, `--mode`) işlenir.
+///
+/// `--out DIR` yoksa OLUŞTURULUR (ara dizinlerle): oluşturulmazsa işlemlerin geçici dosya adımı
+/// errno 2 ile, anlaşılmaz bir iletiyle düşüyordu (ölçüldü 2026-10-03: "Could not create a private
+/// temporary directory … No such file or directory"). `blank` `--out`'u dosya da sayabildiği için
+/// `createsOutputDirectory: false` geçer ve kendisi karar verir.
 func parseArguments(
-  _ arguments: [String], extra: (String, inout Int) -> Bool = { _, _ in false }
+  _ arguments: [String], createsOutputDirectory: Bool = true,
+  extra: (String, inout Int) -> Bool = { _, _ in false }
+) -> (outputDirectory: URL?, inputs: [URL]) {
+  let parsed = collectArguments(arguments, extra: extra)
+  if createsOutputDirectory, let directory = parsed.outputDirectory {
+    do {
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    } catch {
+      print("✗ could not create output folder \(directory.path): \(error.localizedDescription)")
+      exit(1)
+    }
+  }
+  return parsed
+}
+
+func collectArguments(
+  _ arguments: [String], extra: (String, inout Int) -> Bool
 ) -> (outputDirectory: URL?, inputs: [URL]) {
   var outputDirectory: URL?
   var inputs: [URL] = []
@@ -323,7 +344,8 @@ case "blank":
   var widthArgument: String?
   var heightArgument: String?
   var landscape = false
-  let (blankOut, blankInputs) = parseArguments(arguments) { arg, index in
+  let (blankOut, blankInputs) = parseArguments(arguments, createsOutputDirectory: false) {
+    arg, index in
     if arg == "--pages" {
       index += 1
       guard index < arguments.count else { usage() }
