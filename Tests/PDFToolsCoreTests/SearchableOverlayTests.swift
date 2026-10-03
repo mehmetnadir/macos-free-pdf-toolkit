@@ -528,13 +528,14 @@ final class SearchableOverlayTests: XCTestCase {
   /// `dir` içinde kaynağı üretir, kancalı işlemi koşturur, hatayı döner; dizinde artık dosya
   /// kalmadığını doğrular.
   private func rejection(
+    bodyFixture: Bool = false,
     hook: @escaping @Sendable (_ output: URL, _ source: URL) async throws -> Void,
     file: StaticString = #filePath, line: UInt = #line
   ) async throws -> Error? {
     _ = try qpdf()
     let dir = try makeTempDirectory()
     let source = dir.appendingPathComponent("kaynak.pdf")
-    Self.makeFixture(to: source)
+    if bodyFixture { Self.makeBodyFixture(to: source) } else { Self.makeFixture(to: source) }
     var thrown: Error?
     do {
       _ = try await runOverlay(
@@ -563,13 +564,13 @@ final class SearchableOverlayTests: XCTestCase {
 
   /// Fikstürle aynı sayfa kutularında vektör PDF; `draw` her sayfaya çizer.
   private static func makeVectorPages(
-    to url: URL, draw: (CGContext, Int, CGSize) -> Void
+    to url: URL, sizes: [CGSize] = pageSizes, draw: (CGContext, Int, CGSize) -> Void
   ) {
     var dummy = CGRect(x: 0, y: 0, width: 1, height: 1)
     guard let consumer = CGDataConsumer(url: url as CFURL),
       let pdf = CGContext(consumer: consumer, mediaBox: &dummy, nil)
     else { fatalError("PDF bağlamı") }
-    for (index, size) in pageSizes.enumerated() {
+    for (index, size) in sizes.enumerated() {
       var box = CGRect(origin: .zero, size: size)
       let info: [CFString: Any] = [
         kCGPDFContextMediaBox: Data(bytes: &box, count: MemoryLayout<CGRect>.size) as CFData
@@ -609,20 +610,137 @@ final class SearchableOverlayTests: XCTestCase {
     let qpdf = try qpdf()
     let aux = try makeTempDirectory()
     let shifted = aux.appendingPathComponent("kayik.pdf")
-    let font = CTFontCreateWithName("Helvetica" as CFString, Self.fontSize, nil)
-    Self.makeVectorPages(to: shifted) { ctx, index, size in
-      for (wordIndex, word) in Self.script.pages[index].enumerated() {
+    // Gövde satırları yarım satır aralığı (200 pt) YUKARI kaymış görünmez katman: metin sayfada
+    // var, ama OCR'ın bulduğu kutuda (± 1 satır payıyla) yok.
+    let font = CTFontCreateWithName("Helvetica" as CFString, Self.bodyFontSize, nil)
+    Self.makeVectorPages(to: shifted, sizes: Self.bodyPageSizes) { ctx, index, _ in
+      guard index > 0 else { return }
+      for (lineIndex, text) in Self.bodyLines.enumerated() {
         let attrs = [kCTFontAttributeName: font] as CFDictionary
-        guard let string = CFAttributedStringCreate(nil, word as CFString, attrs) else { return }
+        guard let string = CFAttributedStringCreate(nil, text as CFString, attrs) else { return }
         ctx.setTextDrawingMode(.invisible)
-        ctx.textPosition = CGPoint(x: 120 + 550, y: size.height - 250 - CGFloat(wordIndex) * 300)
+        ctx.textPosition = CGPoint(x: 100, y: Self.bodyBaseline(lineIndex) + 200)
         CTLineDraw(CTLineCreateWithAttributedString(string), ctx)
       }
     }
-    let error = try await rejection { output, source in
+    let error = try await rejection(bodyFixture: true) { output, source in
       try await Self.replaceWithOverlay(output: output, under: source, over: shifted, qpdf: qpdf)
     }
-    XCTAssertEqual(error as? SearchablePDFError, .textMisplaced(page: 1))
+    guard case .textMisplaced(let page) = error as? SearchablePDFError else {
+      return XCTFail("textMisplaced bekleniyordu: \(String(describing: error))")
+    }
+    XCTAssertTrue([2, 3].contains(page), "örnek sayfa gövde sayfası olmalıydı: \(page)")
+  }
+
+  // MARK: - Kapı d örnek seçimi (saha: arka kapak yanlış reddi)
+
+  static let bodyPageSizes = Array(repeating: CGSize(width: 1200, height: 1600), count: 3)
+  static let bodyFontSize: CGFloat = 56
+  static func bodyBaseline(_ index: Int) -> CGFloat { 1300 - CGFloat(index) * 400 }
+
+  static var bodyLines: [String] {
+    turkishSupported
+      ? [
+        "okul kitabı her gün sınıfta okunur", "öğrenciler derste yeni konular öğrenir",
+        "bu sayfa arama testi için yazıldı",
+      ]
+      : [
+        "the school book is read in class", "students learn new topics every day",
+        "this page was written for search",
+      ]
+  }
+
+  /// Harf aralıklı büyük harfli dekoratif satırlar: harfler arası 1, kelimeler arası 3 boşluk
+  /// (arka kapak altbilgisi benzetimi).
+  static var decorativeLines: [String] {
+    let words =
+      turkishSupported
+      ? [["AKILLI", "TAHTA"], ["UYGULAMA", "KİTABI"]] : [["SMART", "BOARD"], ["BOOK", "APPS"]]
+    return words.map { line in
+      line.map { $0.map(String.init).joined(separator: " ") }.joined(separator: "   ")
+    }
+  }
+
+  /// 3 sayfa (1200×1600, 1 pt = 1 px): (1) dekoratif harf aralıklı, (2) ve (3) gövde metni.
+  static func makeBodyFixture(to url: URL) {
+    var dummy = CGRect(x: 0, y: 0, width: 1, height: 1)
+    guard let consumer = CGDataConsumer(url: url as CFURL),
+      let pdf = CGContext(consumer: consumer, mediaBox: &dummy, nil)
+    else { fatalError("PDF bağlamı") }
+    for (pageIndex, size) in bodyPageSizes.enumerated() {
+      guard
+        let bitmap = CGContext(
+          data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8,
+          bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+      else { fatalError("bitmap") }
+      bitmap.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+      bitmap.fill(CGRect(origin: .zero, size: size))
+      bitmap.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+      let lines = pageIndex == 0 ? decorativeLines : bodyLines
+      let font = CTFontCreateWithName(
+        "Helvetica" as CFString, pageIndex == 0 ? 70 : bodyFontSize, nil)
+      for (lineIndex, text) in lines.enumerated() {
+        let attrs = [kCTFontAttributeName: font] as CFDictionary
+        guard let string = CFAttributedStringCreate(nil, text as CFString, attrs) else {
+          fatalError("metin")
+        }
+        bitmap.textPosition = CGPoint(x: 100, y: bodyBaseline(lineIndex))
+        CTLineDraw(CTLineCreateWithAttributedString(string), bitmap)
+      }
+      guard let image = bitmap.makeImage() else { fatalError("görüntü") }
+      var box = CGRect(origin: .zero, size: size)
+      let info: [CFString: Any] = [
+        kCGPDFContextMediaBox: Data(bytes: &box, count: MemoryLayout<CGRect>.size) as CFData
+      ]
+      pdf.beginPDFPage(info as CFDictionary)
+      pdf.draw(image, in: box)
+      pdf.endPDFPage()
+    }
+    pdf.closePDF()
+  }
+
+  /// Dekoratif sayfa örnek seçilmez, gövde sayfaları seçilir; işlem GEÇER, not konumun
+  /// doğrulandığını söyler (ölçülemedi notu YOK).
+  func testDecorativePageIsNotSampledAndRunPasses() async throws {
+    _ = try qpdf()
+    let dir = try makeTempDirectory()
+    let source = dir.appendingPathComponent("govde.pdf")
+    Self.makeBodyFixture(to: source)
+    let document = try XCTUnwrap(CGPDFDocument(source as CFURL))
+    let result = try OCRTextLayer.write(
+      document: document, to: dir.appendingPathComponent("katman.pdf"),
+      languages: OCROperation.recognitionLanguages[Self.script.languageKey] ?? ["en-US"],
+      resolution: .native(fallbackDPI: 200), progress: { _ in })
+    let sampled = SearchablePDFOperation.textGateSamples(result).map(\.pageIndex)
+    XCTAssertEqual(Set(sampled), [2, 3], "örnek sayfalar: \(sampled) — \(result.pages)")
+
+    let (_, note) = try await runOverlay(source, in: dir)
+    XCTAssertFalse(
+      note?.contains(SearchablePDFOperation.noBodyTextNote) == true, note ?? "-")
+  }
+
+  /// Uygun gövde satırı hiç yoksa (her satır tek kelime) işlem fırlatmaz; not konumun
+  /// doğrulanamadığını SÖYLER.
+  func testNoBodyTextPassesWithExplicitNote() async throws {
+    _ = try qpdf()
+    let dir = try makeTempDirectory()
+    let source = dir.appendingPathComponent("kaynak.pdf")
+    Self.makeFixture(to: source)
+    let (_, note) = try await runOverlay(source, in: dir)
+    XCTAssertTrue(
+      note?.contains(SearchablePDFOperation.noBodyTextNote) == true, note ?? "-")
+  }
+
+  func testBodyLineFilterAndCoverage() {
+    XCTAssertTrue(OCRTextLayer.isBodyLine(text: "okul kitabı her gün okunur", confidence: 1))
+    XCTAssertFalse(OCRTextLayer.isBodyLine(text: "okul kitabı her gün okunur", confidence: 0.5))
+    XCTAssertFalse(OCRTextLayer.isBodyLine(text: "üç kelime var", confidence: 1))
+    XCTAssertFalse(OCRTextLayer.isBodyLine(text: "% 1 0 0 A k ıllı T o h ta", confidence: 1))
+    XCTAssertGreaterThanOrEqual(
+      OCRVerification.coverage(of: "bulunmalıdır.", in: "kitap bulunmalıdır"), 0.8)
+    XCTAssertLessThan(
+      OCRVerification.coverage(of: "okul kitabı her gün", in: "öğrenciler yeni konular"), 0.8)
   }
 
   /// Kapı e: metin yerinde, görüntü baytları aynı, ama sayfaya GÖRÜNÜR bir vektör kare çizilmiş.

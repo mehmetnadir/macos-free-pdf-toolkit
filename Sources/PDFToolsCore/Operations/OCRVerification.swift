@@ -214,18 +214,35 @@ public enum OCRVerification {
     return !needle.isEmpty && squeeze(text).contains(needle)
   }
 
-  /// Konum kanıtı: `rect` (sayfa uzayı, MediaBox, orijin SOL-ALT) PDFKit'te seçildiğinde
-  /// `expectedSubstring`'i (boşluksuz kıyas) veriyor mu. Metin sayfada var ama başka yerdeyse
-  /// (katman kaymış) `searchablePageContains` geçer, bu düşer. `pageIndex` 1-tabanlı.
-  public static func selectionContains(
-    pdfAt url: URL, pageIndex: Int, rect: CGRect, expectedSubstring: String
-  ) -> Bool {
-    guard let document = PDFDocument(url: url), let page = document.page(at: pageIndex - 1),
-      let selected = page.selection(for: rect)?.string
-    else { return false }
-    func squeeze(_ value: String) -> String { value.filter { !$0.isWhitespace } }
-    let needle = squeeze(expectedSubstring)
-    return !needle.isEmpty && squeeze(selected).contains(needle)
+  /// PDFKit'in sayfa metni (`pageIndex` 1-tabanlı); açılamazsa `nil`.
+  public static func pageText(pdfAt url: URL, pageIndex: Int) -> String? {
+    PDFDocument(url: url)?.page(at: pageIndex - 1)?.string
+  }
+
+  /// PDFKit'te `rect` (sayfa uzayı, MediaBox, orijin SOL-ALT) seçildiğinde dönen metin.
+  public static func selectionText(pdfAt url: URL, pageIndex: Int, rect: CGRect) -> String? {
+    PDFDocument(url: url)?.page(at: pageIndex - 1)?.selection(for: rect)?.string
+  }
+
+  /// `needle`'ın `haystack` içindeki kapsaması (0…1): boşluklar atılmış iki metnin EN UZUN ORTAK
+  /// ALT DİZESİ / `needle` uzunluğu. Birebir eşitlik aranmaz — PDFKit satır sonundaki noktayı
+  /// atabiliyor ya da kelime içine boşluk sokabiliyor; ama ardışık %80 eşleşme tesadüfen
+  /// (kaymış katmanın komşu satırından) oluşmaz.
+  public static func coverage(of needle: String, in haystack: String) -> Double {
+    let lhs = Array(needle.filter { !$0.isWhitespace })
+    let rhs = Array(haystack.filter { !$0.isWhitespace })
+    guard !lhs.isEmpty, !rhs.isEmpty else { return 0 }
+    var previous = [Int](repeating: 0, count: rhs.count + 1)
+    var current = previous
+    var best = 0
+    for i in 1...lhs.count {
+      for j in 1...rhs.count {
+        current[j] = lhs[i - 1] == rhs[j - 1] ? previous[j - 1] + 1 : 0
+        best = max(best, current[j])
+      }
+      swap(&previous, &current)
+    }
+    return Double(best) / Double(lhs.count)
   }
 
   private struct RenderedRGBA {

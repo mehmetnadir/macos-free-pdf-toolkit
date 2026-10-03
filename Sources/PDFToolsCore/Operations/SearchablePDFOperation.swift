@@ -177,7 +177,7 @@ public struct SearchablePDFOperation: PDFOperation {
       if let afterOverlay { try await afterOverlay(partial, file.url) }
 
       // 5. Kapılar (sırayla; biri düşerse fırlatır, çıktı özel dizinle birlikte silinir).
-      try await Self.verifyOverlay(
+      let gateWarnings = try await Self.verifyOverlay(
         source: file.url, output: partial, result: result, qpdf: qpdf, sourceStamp: sourceStamp)
 
       // 6. Teslim.
@@ -185,7 +185,8 @@ public struct SearchablePDFOperation: PDFOperation {
       progress(1)
       return .produced(
         urls: [output],
-        note: Self.overlayNote(result: result, total: total, languageKey: languageKey))
+        note: Self.overlayNote(
+          result: result, total: total, languageKey: languageKey, warnings: gateWarnings))
     }
   }
 
@@ -205,7 +206,7 @@ public struct SearchablePDFOperation: PDFOperation {
   /// (e) piksel sadakati, (f) kaynak dokunulmamış.
   static func verifyOverlay(
     source: URL, output: URL, result: OCRTextLayer.Result, qpdf: URL, sourceStamp: FileStamp?
-  ) async throws {
+  ) async throws -> [String] {
     // a. Yapı. Paketli qpdf'in "Wrong JPEG library version" uyarısı `PDFStructureCheck.parse`
     // tarafından hata SAYILMAZ (ikilinin kusuru, dosyanın değil — gerçek kitap sayfasında ölçüldü).
     let structure = try await PDFStructureCheck.inspect(output, qpdf: qpdf)
@@ -239,29 +240,37 @@ public struct SearchablePDFOperation: PDFOperation {
     let changed = PDFImageIdentity.changedPages(source: sourceImages, output: outputImages)
     guard changed.isEmpty else { throw SearchablePDFError.imagesChanged(pages: changed) }
 
-    // d. Metin: örnek metni olan sayfaların ilki, ortası, sonuncusu. Örnek = sayfanın EN UZUN
-    // satırı; hem sayfada VAR mı hem de OCR'ın bulduğu KONUMDA mı (PDFKit seçimi) sınanır —
-    // katman kayarsa metin sayfada durur ama yerinde olmaz.
-    let samples = result.pages.compactMap { stats in
-      stats.sampleText.map { (page: stats.pageIndex, text: $0, rect: stats.sampleRect) }
+    // d. Metin (bkz. `textGateSamples`): örnek sayfalarda metin VAR mı ve OCR'ın bulduğu
+    // KONUMDA mı (PDFKit seçimi). Katman kayarsa metin sayfada durur ama yerinde olmaz.
+    var warnings: [String] = []
+    let samples = textGateSamples(result)
+    if samples.isEmpty {
+      // Uygun gövde satırı yok (tüm sayfalar kapak/dekoratif): konum ölçülemedi — bu SÖYLENİR;
+      // metin varlığı yine zorunlu.
+      for stats in topScoredPages(result) {
+        let text = OCRVerification.pageText(pdfAt: output, pageIndex: stats.pageIndex) ?? ""
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+          throw SearchablePDFError.textNotFound(page: stats.pageIndex)
+        }
+      }
+      warnings.append(noBodyTextNote)
     }
-    for sample in spread(samples) {
-      guard
-        OCRVerification.searchablePageContains(
-          pdfAt: output, pageIndex: sample.page, expectedSubstring: sample.text,
-          ignoringWhitespace: true)
-      else { throw SearchablePDFError.textNotFound(page: sample.page) }
-      guard let rect = sample.rect else {
-        throw SearchablePDFError.textMisplaced(page: sample.page)
+    for stats in samples {
+      guard let text = stats.sampleText, let rect = stats.sampleRect else { continue }
+      let pageText = OCRVerification.pageText(pdfAt: output, pageIndex: stats.pageIndex) ?? ""
+      guard OCRVerification.coverage(of: text, in: pageText) >= minTextCoverage else {
+        throw SearchablePDFError.textNotFound(page: stats.pageIndex)
       }
       // Pay = bir satır yüksekliği: daha dar payda PDFKit satır sonundaki noktayı seçmedi
       // (gerçek kitap sayfasında ölçüldü — "…bulunmalıdır." → "…bulunmalıdır").
       let pad = min(rect.width, rect.height)
-      guard
-        OCRVerification.selectionContains(
-          pdfAt: output, pageIndex: sample.page, rect: rect.insetBy(dx: -pad, dy: -pad),
-          expectedSubstring: sample.text)
-      else { throw SearchablePDFError.textMisplaced(page: sample.page) }
+      let selected =
+        OCRVerification.selectionText(
+          pdfAt: output, pageIndex: stats.pageIndex, rect: rect.insetBy(dx: -pad, dy: -pad))
+        ?? ""
+      guard OCRVerification.coverage(of: text, in: selected) >= minTextCoverage else {
+        throw SearchablePDFError.textMisplaced(page: stats.pageIndex)
+      }
     }
 
     // e. Piksel sadakati: ilk/orta/son sayfa, uzun kenar ≈ 600 px.
@@ -289,6 +298,39 @@ public struct SearchablePDFOperation: PDFOperation {
     // f. Kaynak dokunulmamış.
     guard let sourceStamp, fileStamp(of: source) == sourceStamp else {
       throw SearchablePDFError.sourceModified
+    }
+    return warnings
+  }
+
+  /// Kapı d'nin kapsama eşiği (ardışık eşleşen karakter / örnek satır).
+  static let minTextCoverage = 0.8
+  /// Konum ölçülemediğinde sonuç notuna düşen cümle (sessiz geçiş YOK).
+  public static let noBodyTextNote =
+    "text position could not be verified (no suitable body text)"
+
+  /// Metni olan sayfalar, (kelime × ortalama güven) puanına göre azalan; en çok `limit` tane.
+  /// Kapak/arka kapak (az, düşük güvenli, dekoratif metin) doğal olarak geride kalır.
+  static func topScoredPages(
+    _ result: OCRTextLayer.Result, limit: Int = 3
+  ) -> [OCRTextLayer.PageStats] {
+    Array(rankedPages(result).prefix(limit))
+  }
+
+  /// Kapı d örnek sayfaları (saha arızası 2026-10-03: ilk/orta/son seçimi 338 sayfalık kitabın
+  /// arka kapağına — harf aralıklı altbilgiye — düştü ve yanlış ret verdi): puan sırasıyla,
+  /// uygun gövde satırı OLAN ilk 3 sayfa; olmayan sayfa atlanır, sıradakine geçilir.
+  static func textGateSamples(
+    _ result: OCRTextLayer.Result, limit: Int = 3
+  ) -> [OCRTextLayer.PageStats] {
+    Array(rankedPages(result).filter { $0.sampleText != nil && $0.sampleRect != nil }.prefix(limit))
+  }
+
+  private static func rankedPages(_ result: OCRTextLayer.Result) -> [OCRTextLayer.PageStats] {
+    func score(_ stats: OCRTextLayer.PageStats) -> Double {
+      Double(stats.words) * stats.meanConfidence
+    }
+    return result.pages.filter { $0.words > 0 }.sorted {
+      score($0) != score($1) ? score($0) > score($1) : $0.pageIndex < $1.pageIndex
     }
   }
 
@@ -318,7 +360,9 @@ public struct SearchablePDFOperation: PDFOperation {
 
   /// `"lossless overlay · N words on M/T pages · mean confidence 0.99"` + metinsiz sayfalar +
   /// Türkçe uyarısı.
-  static func overlayNote(result: OCRTextLayer.Result, total: Int, languageKey: String) -> String {
+  static func overlayNote(
+    result: OCRTextLayer.Result, total: Int, languageKey: String, warnings: [String] = []
+  ) -> String {
     let pagesWithText = result.pages.filter { $0.words > 0 }.count
     let weighted = result.pages.reduce(0.0) { $0 + $1.meanConfidence * Double($1.words) }
     let mean = result.totalWords > 0 ? weighted / Double(result.totalWords) : 0
@@ -337,6 +381,7 @@ public struct SearchablePDFOperation: PDFOperation {
     {
       parts.append(warning)
     }
+    parts.append(contentsOf: warnings)
     return parts.joined(separator: " · ")
   }
 

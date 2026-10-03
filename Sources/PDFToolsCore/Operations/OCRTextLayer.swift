@@ -38,7 +38,10 @@ public enum OCRTextLayer {
     public let words: Int
     public let meanConfidence: Double  // kelime yoksa 0
     public let renderScale: CGFloat
-    /// En uzun SATIR (doğrulama kapısı girdisi — uzun satır yanlış konumu daha iyi yakalar).
+    /// Doğrulama kapısının örnek satırı: güveni ≥ 0,9, ≥ 4 kelimeli, tek karakterli kelime oranı
+    /// < %30 olan EN UZUN gövde satırı (`isBodyLine`); yoksa `nil`. Harf aralıklı dekoratif
+    /// satırlar (arka kapak altbilgisi) bilerek elenir — PDFKit onları farklı kuruyor ve konum
+    /// kontrolü yanlış ret veriyordu (saha, 338 sayfalık kitabın arka kapağı, 2026-10-03).
     public let sampleText: String?
     /// `sampleText` satırının sayfa uzayındaki (MediaBox, orijin SOL-ALT) eksen hizalı kutusu.
     public let sampleRect: CGRect?
@@ -101,6 +104,19 @@ public enum OCRTextLayer {
   struct Line {
     let text: String
     let words: [Word]
+    let confidence: Float
+  }
+
+  /// Örnek satır uygunluğu (bkz. `PageStats.sampleText`).
+  static let sampleMinConfidence: Float = 0.9
+  static let sampleMinWords = 4
+  static let sampleMaxSingleCharRatio = 0.3
+
+  static func isBodyLine(text: String, confidence: Float) -> Bool {
+    let tokens = text.split(whereSeparator: \.isWhitespace)
+    guard confidence >= sampleMinConfidence, tokens.count >= sampleMinWords else { return false }
+    let singles = tokens.filter { $0.count == 1 }.count
+    return Double(singles) / Double(tokens.count) < sampleMaxSingleCharRatio
   }
 
   /// Vision gözlemlerini satır/kelimelere böler (bkz. dosya üstü "KELİME KUTULARI").
@@ -139,7 +155,7 @@ public enum OCRTextLayer {
             text: last.text, bottomLeft: last.bottomLeft, bottomRight: last.bottomRight,
             topLeft: last.topLeft, confidence: last.confidence, endsLine: true))
       }
-      lines.append(Line(text: trimmed, words: lineWords))
+      lines.append(Line(text: trimmed, words: lineWords, confidence: candidate.confidence))
     }
     return (lines, sawTurkish)
   }
@@ -278,7 +294,9 @@ public enum OCRTextLayer {
             confidenceSum += Double(word.confidence)
             lineRect = lineRect.map { $0.union(place.bounds) } ?? place.bounds
           }
-          if let lineRect, line.text.count > (sample?.text.count ?? 0) {
+          if let lineRect, isBodyLine(text: line.text, confidence: line.confidence),
+            line.text.count > (sample?.text.count ?? 0)
+          {
             sample = (line.text, lineRect)
           }
         }
