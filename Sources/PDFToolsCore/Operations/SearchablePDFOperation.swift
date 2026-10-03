@@ -4,21 +4,21 @@ import Foundation
 import Vision
 
 /// Taranmış bir PDF'in ÜSTÜNE görünmez bir metin katmanı ekler: görüntü aynen kalır, ama sayfa
-/// artık aranabilir/seçilebilir. Yöntem: her sayfa CoreGraphics ile yeni PDF'e kopyalanır
-/// (`QRAddOperation.writeOutput` ile AYNI "sayfayı yeniden çiz, rasterleştirme YAPMA" deseni —
-/// varsa vektör içerik KORUNUR), sonra `OCRVerification.recognizeText`'in bulduğu her satır için
-/// metin, PDF metin render kipi 3 (`Tr 3`, "ne dolgu ne çizgi") ile — `CGContext.
-/// setTextDrawingMode(.invisible)` + CoreText `CTLineDraw` — GÖRÜNMEZ ama SEÇİLEBİLİR biçimde
-/// çizilir. Harici motor YOK, model indirme YOK, API anahtarı YOK.
+/// artık aranabilir/seçilebilir. Harici model YOK, API anahtarı YOK — Apple Vision.
 ///
-/// Font harfi harfine hizalanmaz (görev tanımı bunu şart koşmuyor) — Vision'ın satır kutusu
-/// (`boundingBox`, normalize, orijin SOL-ALT) yüksekliğine göre TEK bir punto boyutu seçilir ve
-/// satırın tamamı o kutunun sol-alt köşesinden başlayarak çizilir; bu, arama/seçim için yeterli
-/// hizalama sağlar (bkz. `QRVerification.Detection` ile AYNI koordinat kuralı).
+/// İKİ KİP (2026-10-03, spec `.claude/docs/aranabilir-katman-spec.md`):
 ///
-/// DOĞRULAMA: çıktı güvenli geçici dizinden final ada taşınmadan önce `OCRVerification.
-/// searchablePageContains` ile GERÇEKTEN sınanır — `QRAddOperation`'ın "QR çizildi ama okunmuyor"
-/// hatasını yakalayan gate'iyle AYNI mantık ("metin eklendi ama aranamıyor" hatasını yakalar).
+/// · `overlay` (VARSAYILAN, kayıpsız): `OCRTextLayer` yalnız görünmez metin içeren bir katman
+///   PDF'i yazar, `qpdf <kaynak> --overlay <katman> -- <çıktı>` onu kaynağın üstüne bindirir.
+///   Kaynak sayfa hiç yeniden ÇİZİLMEZ: görüntü baytları birebir (pdfimages sha256), 36 dpi render
+///   `cmp` ile birebir, font/renk/piksel değişimi sıfır (gerçek kitap sayfalarında ölçüldü).
+///   `RewriteOutput.finish` bu kipte KULLANILMAZ — "redrawing changed the file" cümlesi yalan
+///   olurdu; kendi altı kapısı var (bkz. `verifyOverlay`).
+///
+/// · `redraw` (eski yol): her sayfa CoreGraphics ile yeni PDF'e kopyalanır (`QRAddOperation.
+///   writeOutput` deseni), satırlar `Tr 3` ile görünmez çizilir, `RewriteOutput.finish` xref'i
+///   onarıp kalan hasarı sonuç satırında SÖYLER. qpdf bulunamazsa `overlay` buna düşer ve not bunu
+///   söyler.
 public struct SearchablePDFOperation: PDFOperation {
   public static let identifier = "searchablepdf"
   public let id = SearchablePDFOperation.identifier
@@ -29,6 +29,23 @@ public struct SearchablePDFOperation: PDFOperation {
   public let outputSuffix = "_searchable"
   public var outputSuffixes: [String] { [outputSuffix] }
 
+  public static let modeOptionID = "mode"
+  public static let overlayMode = "overlay"
+  public static let redrawMode = "redraw"
+  public static let modeChoices: [(value: String, label: String)] = [
+    (overlayMode, "Lossless overlay (pages kept byte-for-byte)"),
+    (redrawMode, "Redraw pages (legacy)"),
+  ]
+
+  /// qpdf yoksa `overlay`'in `redraw`'a düştüğünü söyleyen not (sessiz düşüş YASAK).
+  public static let qpdfMissingNote = "qpdf not found — pages were redrawn (lossy)"
+  static let noTextReason = "No text recognized — pages may be blank or too low quality to read"
+
+  /// Piksel kapısı eşiği: kanal başına ortalama mutlak fark ≤ 0,5/255.
+  static let maxMeanPixelDifference = 0.5 / 255
+  /// Piksel kapısında render'ın uzun kenarı (px).
+  static let pixelCheckLongSide: CGFloat = 600
+
   public init() {}
 
   public var options: [OperationOption] {
@@ -38,7 +55,10 @@ public struct SearchablePDFOperation: PDFOperation {
         defaultValue: "tr"),
       OperationOption(
         id: OCROperation.dpiOptionID, label: "Resolution", choices: OCROperation.dpiChoices,
-        defaultValue: "200"),
+        defaultValue: OCROperation.defaultDPIValue),
+      OperationOption(
+        id: Self.modeOptionID, label: "Mode", choices: Self.modeChoices,
+        defaultValue: Self.overlayMode),
     ]
   }
 
@@ -51,6 +71,8 @@ public struct SearchablePDFOperation: PDFOperation {
     case .passwordRequired: throw OperationError.passwordRequired
     case .restricted, .none: break
     }
+    // Kapı f'nin girdisi: kaynağın (boyut, mtime) damgası İŞLEM BAŞINDA alınır.
+    let sourceStamp = Self.fileStamp(of: file.url)
     guard let document = CGPDFDocument(file.url as CFURL), document.isUnlocked else {
       throw OperationError.unreadable
     }
@@ -60,12 +82,236 @@ public struct SearchablePDFOperation: PDFOperation {
     let languageKey = context.options[OCROperation.languageOptionID] ?? "tr"
     let languages =
       OCROperation.recognitionLanguages[languageKey] ?? OCROperation.recognitionLanguages["tr"]!
-    let dpi = CGFloat(Double(context.options[OCROperation.dpiOptionID] ?? "200") ?? 200)
+    let resolution = OCROperation.resolution(from: context.options[OCROperation.dpiOptionID])
+    let mode = context.options[Self.modeOptionID] ?? Self.overlayMode
+    guard mode == Self.overlayMode || mode == Self.redrawMode else {
+      throw SearchablePDFError.unknownMode(mode)
+    }
 
     let output = OutputNaming.uniqueURL(
       for: file.url, suffix: outputSuffix, in: context.outputDirectory)
-    let fm = FileManager.default
 
+    if mode == Self.redrawMode {
+      return try await runRedraw(
+        file: file, document: document, total: total, languageKey: languageKey,
+        languages: languages, resolution: resolution, output: output, extraNote: nil,
+        progress: progress)
+    }
+    guard let qpdf = EngineLocator.find("qpdf") else {
+      return try await runRedraw(
+        file: file, document: document, total: total, languageKey: languageKey,
+        languages: languages, resolution: resolution, output: output,
+        extraNote: Self.qpdfMissingNote, progress: progress)
+    }
+
+    // GÜVENLİK: katmanı CoreGraphics, çıktıyı qpdf (alt süreç) KENDİSİ oluşturuyor —
+    // `TempArtifact.withPrivateDirectory` (bkz. o tipin gerekçesi). Bir kapı düşerse fırlatılır ve
+    // dizin `defer` ile İÇERİĞİYLE silinir: yarım çıktı asla görünür ada taşınmaz.
+    return try await TempArtifact.withPrivateDirectory(
+      in: output.deletingLastPathComponent()
+    ) { tempDir in
+      // 1. Katman (ilerleme 0 → 0,85).
+      let layer = tempDir.appendingPathComponent("layer.pdf")
+      let result = try OCRTextLayer.write(
+        document: document, to: layer, languages: languages, resolution: resolution,
+        progress: { progress($0 * 0.85) })
+      guard result.totalWords > 0 else { return .skipped(reason: Self.noTextReason) }
+
+      // 2. Katman sayfa sayısı (eksik sayfa kapısı).
+      try Self.checkLayerPageCount(layer: layer, expected: total)
+
+      // 3. Döndürülmüş sayfa telafisi (bkz. `OCRTextLayer.rotationArguments`, ölçüm orada).
+      let rotation = OCRTextLayer.rotationArguments(for: document)
+      var placedLayer = layer
+      if !rotation.isEmpty {
+        let rotated = tempDir.appendingPathComponent("layer-rotated.pdf")
+        let rotateRun = try await ProcessRunner.run(
+          qpdf,
+          arguments: [QPDFArgument.path(for: layer)] + rotation + [
+            "--", QPDFArgument.path(for: rotated),
+          ])
+        guard rotateRun.status == 0 || rotateRun.status == 3,
+          FileManager.default.fileExists(atPath: rotated.path)
+        else { throw SearchablePDFError.overlayFailed(rotateRun.stderr) }
+        try Self.checkLayerPageCount(layer: rotated, expected: total)
+        placedLayer = rotated
+      }
+
+      // 4. Bindirme. `--overlay`'in `--` sonlandırıcısı qpdf sözdiziminin parçası (katman
+      // dosyasının seçeneklerini bitirir); yollar yine `QPDFArgument.path` ile korunur.
+      let partial = tempDir.appendingPathComponent("output.pdf")
+      let overlayRun = try await ProcessRunner.run(
+        qpdf,
+        arguments: [
+          QPDFArgument.path(for: file.url), "--overlay", QPDFArgument.path(for: placedLayer), "--",
+          QPDFArgument.path(for: partial),
+        ])
+      guard overlayRun.status == 0 || overlayRun.status == 3,
+        FileManager.default.fileExists(atPath: partial.path)
+      else { throw SearchablePDFError.overlayFailed(overlayRun.stderr) }
+      progress(0.9)
+
+      // 5. Kapılar (sırayla; biri düşerse fırlatır, çıktı özel dizinle birlikte silinir).
+      try await Self.verifyOverlay(
+        source: file.url, output: partial, result: result, qpdf: qpdf, sourceStamp: sourceStamp)
+
+      // 6. Teslim.
+      try FileManager.default.moveItem(at: partial, to: output)
+      progress(1)
+      return .produced(
+        urls: [output],
+        note: Self.overlayNote(result: result, total: total, languageKey: languageKey))
+    }
+  }
+
+  // MARK: - overlay kapıları
+
+  /// Katman PDF'inin sayfa sayısı kaynakla aynı mı — değilse `layerPageCount` fırlatır.
+  static func checkLayerPageCount(layer: URL, expected: Int) throws {
+    guard let document = CGPDFDocument(layer as CFURL) else {
+      throw SearchablePDFError.layerPageCount(expected: expected, actual: 0)
+    }
+    guard document.numberOfPages == expected else {
+      throw SearchablePDFError.layerPageCount(expected: expected, actual: document.numberOfPages)
+    }
+  }
+
+  /// Spec §2.5'in altı kapısı, SIRAYLA: (a) yapı, (b) sayfa sayısı, (c) görüntü kimliği, (d) metin,
+  /// (e) piksel sadakati, (f) kaynak dokunulmamış.
+  static func verifyOverlay(
+    source: URL, output: URL, result: OCRTextLayer.Result, qpdf: URL, sourceStamp: FileStamp?
+  ) async throws {
+    // a. Yapı. Paketli qpdf'in "Wrong JPEG library version" uyarısı `PDFStructureCheck.parse`
+    // tarafından hata SAYILMAZ (ikilinin kusuru, dosyanın değil — gerçek kitap sayfasında ölçüldü).
+    let structure = try await PDFStructureCheck.inspect(output, qpdf: qpdf)
+    guard structure.isSound else {
+      throw OperationError.outputStructureBroken(structure.summary)
+    }
+
+    // b. Sayfa sayısı — iki tarafı da qpdf ölçer.
+    let sourcePages = await RewriteOutput.pageCount(of: source, qpdf: qpdf)
+    let outputPages = await RewriteOutput.pageCount(of: output, qpdf: qpdf)
+    guard let sourcePages, let outputPages else {
+      throw OperationError.pageIntegrityUnverifiable("qpdf could not count the pages")
+    }
+    guard sourcePages == outputPages else {
+      throw SearchablePDFError.pageCountChanged(before: sourcePages, after: outputPages)
+    }
+
+    // c. Görüntü kimliği (süreç içi, alt süreç yok).
+    guard let sourceImages = PDFImageIdentity.pageImageHashes(at: source),
+      let outputImages = PDFImageIdentity.pageImageHashes(at: output)
+    else { throw SearchablePDFError.gateUnverifiable("image streams could not be read") }
+    let changed = PDFImageIdentity.changedPages(source: sourceImages, output: outputImages)
+    guard changed.isEmpty else { throw SearchablePDFError.imagesChanged(pages: changed) }
+
+    // d. Metin: örnek metni olan sayfaların ilki, ortası, sonuncusu.
+    let samples = result.pages.compactMap { stats in
+      stats.sampleText.map { (page: stats.pageIndex, text: $0) }
+    }
+    for sample in spread(samples) {
+      guard
+        OCRVerification.searchablePageContains(
+          pdfAt: output, pageIndex: sample.page, expectedSubstring: sample.text,
+          ignoringWhitespace: true)
+      else { throw SearchablePDFError.textNotFound(page: sample.page) }
+    }
+
+    // e. Piksel sadakati: ilk/orta/son sayfa, uzun kenar ≈ 600 px.
+    guard let sourceDoc = CGPDFDocument(source as CFURL),
+      let outputDoc = CGPDFDocument(output as CFURL)
+    else { throw SearchablePDFError.gateUnverifiable("pages could not be rendered") }
+    for pageIndex in spread(Array(1...max(1, sourcePages))) {
+      guard let sourcePage = sourceDoc.page(at: pageIndex),
+        let outputPage = outputDoc.page(at: pageIndex)
+      else { throw SearchablePDFError.gateUnverifiable("page \(pageIndex) could not be opened") }
+      let box = sourcePage.getBoxRect(.mediaBox)
+      let longSide = max(box.width, box.height)
+      let dpi = longSide > 0 ? pixelCheckLongSide * 72 / longSide : 72
+      guard
+        let diff = OCRVerification.averagePixelDifference(
+          pageA: sourcePage, pageB: outputPage, dpi: dpi)
+      else {
+        throw SearchablePDFError.gateUnverifiable("page \(pageIndex) could not be rendered")
+      }
+      guard diff <= maxMeanPixelDifference else {
+        throw SearchablePDFError.visualChange(page: pageIndex, meanDiff: diff)
+      }
+    }
+
+    // f. Kaynak dokunulmamış.
+    guard let sourceStamp, fileStamp(of: source) == sourceStamp else {
+      throw SearchablePDFError.sourceModified
+    }
+  }
+
+  /// İlk, orta ve son öğe (tekrarsız, sırası korunarak).
+  static func spread<T>(_ items: [T]) -> [T] {
+    guard !items.isEmpty else { return [] }
+    var indices: [Int] = []
+    for index in [0, items.count / 2, items.count - 1] where !indices.contains(index) {
+      indices.append(index)
+    }
+    return indices.map { items[$0] }
+  }
+
+  /// Kaynağın dokunulmadığını gösteren damga: bayt boyutu + değişiklik zamanı.
+  struct FileStamp: Equatable {
+    let size: UInt64
+    let modified: Date
+  }
+
+  static func fileStamp(of url: URL) -> FileStamp? {
+    guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+      let size = attributes[.size] as? NSNumber,
+      let modified = attributes[.modificationDate] as? Date
+    else { return nil }
+    return FileStamp(size: size.uint64Value, modified: modified)
+  }
+
+  /// `"lossless overlay · N words on M/T pages · mean confidence 0.99"` + metinsiz sayfalar +
+  /// Türkçe uyarısı.
+  static func overlayNote(result: OCRTextLayer.Result, total: Int, languageKey: String) -> String {
+    let pagesWithText = result.pages.filter { $0.words > 0 }.count
+    let weighted = result.pages.reduce(0.0) { $0 + $1.meanConfidence * Double($1.words) }
+    let mean = result.totalWords > 0 ? weighted / Double(result.totalWords) : 0
+    var parts = [
+      "lossless overlay · \(result.totalWords) words on \(pagesWithText)/\(total) pages · "
+        + String(format: "mean confidence %.2f", mean)
+    ]
+    let blank = result.pagesWithoutText
+    if !blank.isEmpty {
+      let shown = blank.prefix(10).map(String.init).joined(separator: ", ")
+      let suffix = blank.count > 10 ? ", …" : ""
+      parts.append("\(blank.count) pages had no recognizable text: \(shown)\(suffix)")
+    }
+    if let warning = turkishWarning(
+      languageKey: languageKey, sawDiacritic: result.sawTurkishDiacritic)
+    {
+      parts.append(warning)
+    }
+    return parts.joined(separator: " · ")
+  }
+
+  /// İKİ BAĞIMSIZ sinyal — bkz. `OCRVerification` dosya üstü CI ölçümü (GitHub macos-15
+  /// runner, 2026-09-08): bu makinede Vision'ın tr-TR'ye sessizce düşmediğinden emin olunamıyorsa
+  /// YA DA gerçek tanınan metinde hiç Türkçe aksanlı harf yoksa, eklenen metin GÖRÜNMEZ katmanda
+  /// sessizce bozuk kalabilir — kullanıcı bunu göremez (metin zaten görünmez).
+  static func turkishWarning(languageKey: String, sawDiacritic: Bool) -> String? {
+    guard languageKey == "tr" || languageKey == "auto" else { return nil }
+    let missingFromSupportedList = !OCRVerification.allLanguagesSupported(
+      ["tr-TR"], level: .accurate)
+    return missingFromSupportedList || !sawDiacritic ? OCROperation.turkishSupportWarning : nil
+  }
+
+  // MARK: - redraw (eski yol)
+
+  private func runRedraw(
+    file: PDFFileInfo, document: CGPDFDocument, total: Int, languageKey: String,
+    languages: [String], resolution: OCRTextLayer.Resolution, output: URL, extraNote: String?,
+    progress: @escaping @Sendable (Double) -> Void
+  ) async throws -> OperationOutcome {
+    let fm = FileManager.default
     // GÜVENLİK: `writeOutput` bir `CGDataConsumer(url:)` üzerinden CoreGraphics'in KENDİSİ
     // tarafından oluşturulan bir dosyaya yazıyor — `TempArtifact.withPrivateDirectory` kullanılıyor
     // (bkz. o tipin gerekçesi).
@@ -74,12 +320,11 @@ public struct SearchablePDFOperation: PDFOperation {
     ) { tempDir in
       let partial = tempDir.appendingPathComponent("output.pdf")
       let (samples, sawTurkishDiacritic) = try Self.writeOutput(
-        document: document, total: total, languages: languages, dpi: dpi, to: partial,
-        progress: progress)
+        document: document, total: total, languages: languages, resolution: resolution,
+        to: partial, progress: progress)
 
       guard let firstSample = samples.first else {
-        return .skipped(
-          reason: "No text recognized — pages may be blank or too low quality to read")
+        return .skipped(reason: Self.noTextReason)
       }
 
       // Kanıt: görünmez metin GERÇEKTEN seçilebilir/aranabilir mi (bkz. dosya üstü yorum).
@@ -91,7 +336,7 @@ public struct SearchablePDFOperation: PDFOperation {
         throw SearchablePDFError.verificationFailed
       }
 
-      // YENİDEN ÇİZMENİN ORTAK SON ADIMI (bkz. `RewriteOutput` gerekçesi): bu işlem sayfayı
+      // YENİDEN ÇİZMENİN ORTAK SON ADIMI (bkz. `RewriteOutput` gerekçesi): bu kip sayfayı
       // CoreGraphics ile yeniden çiziyor; ölçüldüğünde çıktının xref'i kırılıyor (gerçek bir
       // matbaa dosyasında 64 nesne "offset 0"), sürüm düşüyor ve XMP üstverisi siliniyor. Onarım +
       // yapı kapısı burada; kalan hasar sonuç satırında SÖYLENİYOR, sessizce yutulmuyor.
@@ -100,24 +345,10 @@ public struct SearchablePDFOperation: PDFOperation {
       try fm.moveItem(at: partial, to: output)
       progress(1)
 
-      // İKİ BAĞIMSIZ sinyal — bkz. `OCRVerification` dosya üstü CI ölçümü (GitHub macos-15
-      // runner, 2026-09-08): bu makinede Vision'ın tr-TR'ye sessizce düşmediğinden emin
-      // olunamıyorsa YA DA GERÇEK tanınan metinde hiç Türkçe aksanlı harf yoksa, eklenen metin
-      // GÖRÜNMEZ katmanda sessizce bozuk kalabilir — kullanıcı bunu göremez (metin zaten
-      // görünmez). `sawTurkishDiacritic` burada `OCRVerification.containsTurkishDiacritic`'in
-      // `writeOutput` döngüsünde satır satır OR'lanmış hâli — tüm sayfa metnini bellekte
-      // tutmadan AYNI ikinci sinyali verir.
-      let requestsTurkish = languageKey == "tr" || languageKey == "auto"
-      var note: String?
-      if requestsTurkish {
-        let missingFromSupportedList = !OCRVerification.allLanguagesSupported(
-          ["tr-TR"], level: .accurate)
-        if missingFromSupportedList || !sawTurkishDiacritic {
-          note = OCROperation.turkishSupportWarning
-        }
-      }
-      // Yeniden çizme hasarı (varsa) OCR uyarısıyla birlikte bildirilir — biri diğerini bastırmaz.
-      let notes = [note, rewrite.note].compactMap { $0 }
+      // Türkçe uyarısı, yeniden çizme hasarı ve (varsa) qpdf yokluğu birlikte bildirilir — biri
+      // diğerini bastırmaz.
+      let warning = Self.turkishWarning(languageKey: languageKey, sawDiacritic: sawTurkishDiacritic)
+      let notes = [extraNote, warning, rewrite.note].compactMap { $0 }
       return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
     }
   }
@@ -130,7 +361,8 @@ public struct SearchablePDFOperation: PDFOperation {
   /// ı/Ş/Ğ) görüldü mü — Türkçe dil desteği bozukluğunun ikinci sinyali (bkz. `run()`), metni
   /// bellekte biriktirmeden tek bir bayrakla izlenir.
   private static func writeOutput(
-    document: CGPDFDocument, total: Int, languages: [String], dpi: CGFloat, to url: URL,
+    document: CGPDFDocument, total: Int, languages: [String], resolution: OCRTextLayer.Resolution,
+    to url: URL,
     progress: @escaping @Sendable (Double) -> Void
   ) throws -> (samples: [(pageIndex: Int, sampleText: String)], sawTurkishDiacritic: Bool) {
     var dummyBox = CGRect(x: 0, y: 0, width: 1, height: 1)
@@ -146,7 +378,8 @@ public struct SearchablePDFOperation: PDFOperation {
       try Task.checkCancellation()
       guard let page = document.page(at: pageIndex) else { continue }
       // Her sayfa KENDİ MediaBox'ıyla açılır — `QRAddOperation.writeOutput` ile AYNI, ölçülüp
-      // doğrulanmış desen (bkz. o dosyadaki yorum): farklı sayfa boyutları da aslına sadık kopyalanır.
+      // doğrulanmış desen (bkz. o dosyadaki yorum): farklı sayfa boyutları da aslına sadık
+      // kopyalanır.
       var box = page.getBoxRect(.mediaBox)
       let pageInfo: [CFString: Any] = [
         kCGPDFContextMediaBox: Data(bytes: &box, count: MemoryLayout<CGRect>.size) as CFData
@@ -157,7 +390,8 @@ public struct SearchablePDFOperation: PDFOperation {
       // Döngü içinde: tanıma sırasındaki render bitmap'i yalnızca bu iterasyon boyunca yaşar —
       // aynı anda TEK sayfalık görüntü bellekte (bkz. `ImageExportOperation` ile AYNI gerekçe).
       let lines = try OCRVerification.recognizeText(
-        onPage: page, dpi: dpi, languages: languages, level: .accurate)
+        onPage: page, scale: OCRTextLayer.renderScale(for: page, resolution: resolution),
+        languages: languages, level: .accurate)
       var firstNonEmpty: String?
       for line in lines {
         let trimmed = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -208,6 +442,7 @@ public struct SearchablePDFOperation: PDFOperation {
   }
 }
 
+
 /// `SearchablePDFOperation`'a özgü hatalar — `OperationError`'a EKLENMEDİ (bkz. `QRError`/
 /// `ExtractTextError` ile AYNI desen: işleme özgü hata kendi dosyasında).
 public enum SearchablePDFError: Error, LocalizedError, Equatable {
@@ -216,12 +451,55 @@ public enum SearchablePDFError: Error, LocalizedError, Equatable {
   /// `OCRVerification.searchablePageContains` çıktıyı okuyamadı ya da beklenen metni bulamadı;
   /// çıktı silinir.
   case verificationFailed
+  /// `mode` seçeneği tanınmayan bir değer taşıyor.
+  case unknownMode(String)
+  /// Katman yazılırken kaynak sayfa açılamadı (sessiz atlama YASAK — eksik sayfa kapısı).
+  case pageUnreadable(page: Int)
+  /// Katman PDF'inin sayfa sayısı kaynakla uyuşmuyor.
+  case layerPageCount(expected: Int, actual: Int)
+  /// `qpdf --overlay` (ya da katman döndürme) başarısız oldu / çıktı yazmadı.
+  case overlayFailed(String)
+  /// Bindirilmiş çıktının sayfa sayısı kaynaktan farklı.
+  case pageCountChanged(before: Int, after: Int)
+  /// Görüntü akışlarının baytları kaynakla çıktıda farklı olan sayfalar (1 tabanlı).
+  case imagesChanged(pages: [Int])
+  /// Tanınan örnek metin çıktının bu sayfasında PDFKit ile bulunamadı.
+  case textNotFound(page: Int)
+  /// Çıktı kaynaktan görsel olarak farklı (kanal başına ortalama fark, 0…1).
+  case visualChange(page: Int, meanDiff: Double)
+  /// Kaynak dosya işlem sırasında değişti (boyut ya da değişiklik zamanı).
+  case sourceModified
+  /// Bir kapı ölçüm yapamadı — "ölçemedim" ile "sorun yok" aynı şey değil, fırlatılır.
+  case gateUnverifiable(String)
 
   public var errorDescription: String? {
     switch self {
     case .generationFailed: return "Could not generate a searchable PDF"
     case .verificationFailed:
       return "Text was added but searchability could not be verified — output deleted"
+    case .unknownMode(let mode):
+      return "Unknown mode \"\(mode)\" — use overlay or redraw"
+    case .pageUnreadable(let page):
+      return "Page \(page) could not be opened — no output was written"
+    case .layerPageCount(let expected, let actual):
+      return "Text layer has \(actual) pages instead of \(expected) — output deleted"
+    case .overlayFailed(let detail):
+      let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+      return "qpdf could not place the text layer" + (trimmed.isEmpty ? "" : " (\(trimmed))")
+    case .pageCountChanged(let before, let after):
+      return "Output page count differs from the source (\(before) → \(after)) — output deleted"
+    case .imagesChanged(let pages):
+      let list = pages.prefix(10).map(String.init).joined(separator: ", ")
+      return "Images changed on page(s) \(list) — output deleted"
+    case .textNotFound(let page):
+      return "Recognized text could not be found on page \(page) of the output — output deleted"
+    case .visualChange(let page, let meanDiff):
+      return "Page \(page) looks different from the source "
+        + String(format: "(mean difference %.2f/255)", meanDiff * 255) + " — output deleted"
+    case .sourceModified:
+      return "The source file changed while it was being processed — output deleted"
+    case .gateUnverifiable(let detail):
+      return "Output could not be verified — \(detail); output deleted"
     }
   }
 }

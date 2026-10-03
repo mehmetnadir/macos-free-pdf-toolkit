@@ -94,7 +94,7 @@ public enum RewriteOutput {
   /// `nil` döner ve kararı çağırana bırakır (çağıran bunu "doğrulanamadı" sayıp fırlatıyor).
   /// Yol `QPDFArgument.path` ile veriliyor: qpdf'in `--`'si tekil komutlarda İŞE YARAMIYOR
   /// (ölçüldü, bkz. `PDFEngine.swift`), ölçülmüş tek koruma `./` ön eki.
-  private static func pageCount(of url: URL, qpdf: URL) async -> Int? {
+  static func pageCount(of url: URL, qpdf: URL) async -> Int? {
     guard
       let result = try? await ProcessRunner.run(
         qpdf, arguments: ["--show-npages", QPDFArgument.path(for: url)]),

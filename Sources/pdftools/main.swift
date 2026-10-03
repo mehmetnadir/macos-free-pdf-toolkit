@@ -22,9 +22,12 @@ func usage() -> Never {
       pdftools qradd --content TEXT [--position br|bl|tr|tl] [--size small|medium|large]
                      [--pages all|first] [--out DIR] <file.pdf|folder>...
       pdftools qrextract [--dpi 200] [--out DIR] <file.pdf|folder>...
-      pdftools ocr [--language tr|en|auto] [--dpi 200] [--level accurate|fast]
+      pdftools ocr [--language tr|en|auto] [--dpi auto|150|200|300] [--level accurate|fast]
                   [--out DIR] <file.pdf|folder>...
-      pdftools searchable [--language tr|en|auto] [--dpi 200] [--out DIR] <file.pdf|folder>...
+      pdftools searchable [--language tr|en|auto] [--dpi auto|150|200|300]
+                          [--mode overlay|redraw] [--out DIR] <file.pdf|folder>...
+                          (overlay: lossless, pages kept byte-for-byte — default;
+                           redraw: legacy, pages are redrawn; dpi auto = image's own resolution)
       pdftools watermarkremove [--out DIR] <file.pdf|folder>...   (experimental)
       pdftools watermarkadd --text TEXT [--position center|header|footer]
                             [--opacity 0.15] [--font-size 36] [--color gray|red|blue]
@@ -256,13 +259,23 @@ case "qrextract":
 case "ocr", "searchable":
   var ocrSeçenekleri: [String: String] = [:]
   let (ocrOut, ocrInputs) = parseArguments(arguments) { arg, index in
-    let eşleme = ["--language": OCROperation.languageOptionID,
+    var eşleme = ["--language": OCROperation.languageOptionID,
                   "--dpi": OCROperation.dpiOptionID,
                   "--level": OCROperation.levelOptionID]
+    // `--mode` yalnız `searchable`'da anlamlı; `ocr`'da kullanım hatası.
+    if command == "searchable" { eşleme["--mode"] = SearchablePDFOperation.modeOptionID }
     guard let anahtar = eşleme[arg] else { return false }
     index += 1
     guard index < arguments.count else { usage() }
-    ocrSeçenekleri[anahtar] = arguments[index]
+    let değer = arguments[index]
+    // Tanınmayan değer sessizce varsayılana DÜŞMEZ — kullanım hatası.
+    if anahtar == OCROperation.dpiOptionID,
+      değer != "auto", (Double(değer) ?? 0) <= 0
+    { usage() }
+    if anahtar == SearchablePDFOperation.modeOptionID,
+      !SearchablePDFOperation.modeChoices.contains(where: { $0.value == değer })
+    { usage() }
+    ocrSeçenekleri[anahtar] = değer
     return true
   }
   let ocrFiles = PDFFileInfo.collectPDFs(from: ocrInputs)

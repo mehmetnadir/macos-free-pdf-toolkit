@@ -54,14 +54,42 @@ public enum OCRVerification {
   /// `page`'i `dpi`'de beyaz zemin üstüne render edip Vision ile üstündeki metni tanır. Sayfa
   /// kutusu dejenereyse ya da render başarısızsa boş dizi döner (hata FIRLATMAZ); Vision'ın
   /// `perform` çağrısı hata verirse o hatayı ÜST çağırana yansıtır (Vision içi bir hata gerçek
-  /// arıza sayılır, "bulunamadı" ile karıştırılmaz).
+  /// arıza sayılır, "bulunamadı" ile karıştırılmaz). `recognizeText(onPage:scale:…)`'in dpi
+  /// cinsinden kısayolu.
   public static func recognizeText(
     onPage page: CGPDFPage, dpi: CGFloat, languages: [String],
     level: VNRequestTextRecognitionLevel, usesLanguageCorrection: Bool = true
   ) throws -> [RecognizedLine] {
+    try recognizeText(
+      onPage: page, scale: dpi / 72.0, languages: languages, level: level,
+      usesLanguageCorrection: usesLanguageCorrection)
+  }
+
+  /// Ölçeği (1.0 = 72 dpi) doğrudan alan sürüm — çağıranlar ölçeği
+  /// `OCRTextLayer.renderScale(for:resolution:)`'dan alır (görüntünün yerel çözünürlüğü).
+  public static func recognizeText(
+    onPage page: CGPDFPage, scale: CGFloat, languages: [String],
+    level: VNRequestTextRecognitionLevel, usesLanguageCorrection: Bool = true
+  ) throws -> [RecognizedLine] {
+    let observations = try recognizeObservations(
+      onPage: page, scale: scale, languages: languages, level: level,
+      usesLanguageCorrection: usesLanguageCorrection)
+    return observations.compactMap { observation in
+      guard let candidate = observation.topCandidates(1).first else { return nil }
+      return RecognizedLine(
+        text: candidate.string, confidence: candidate.confidence,
+        boundingBox: observation.boundingBox)
+    }
+  }
+
+  /// Ham Vision gözlemleri — `OCRTextLayer` kelime kutularını (`boundingBox(for:)`) buradan alır.
+  /// Render bitmap'i yalnız bu çağrı boyunca yaşar.
+  static func recognizeObservations(
+    onPage page: CGPDFPage, scale: CGFloat, languages: [String],
+    level: VNRequestTextRecognitionLevel, usesLanguageCorrection: Bool = true
+  ) throws -> [VNRecognizedTextObservation] {
     let box = page.getBoxRect(.mediaBox)
-    guard box.width > 0, box.height > 0 else { return [] }
-    let scale = dpi / 72.0
+    guard box.width > 0, box.height > 0, scale > 0 else { return [] }
     let width = max(1, Int((box.width * scale).rounded(.up)))
     let height = max(1, Int((box.height * scale).rounded(.up)))
     guard
@@ -81,12 +109,7 @@ public enum OCRVerification {
     request.recognitionLanguages = languages
     request.usesLanguageCorrection = usesLanguageCorrection
     try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-    return (request.results ?? []).compactMap { observation in
-      guard let candidate = observation.topCandidates(1).first else { return nil }
-      return RecognizedLine(
-        text: candidate.string, confidence: candidate.confidence,
-        boundingBox: observation.boundingBox)
-    }
+    return request.results ?? []
   }
 
   /// `languages`'taki HER dilin, verilen `level`'da (Vision revizyonuna göre değişebilir) GERÇEKTEN
@@ -157,13 +180,20 @@ public enum OCRVerification {
   /// `expectedSubstring`'i GERÇEKTEN içerdiğini doğrular (görünmez ama SEÇİLEBİLİR/aranabilir
   /// metin — `QRAddOperation`'ın "QR çizildi ama okunmuyor" hatasını yakalayan `pageContains`
   /// gate'iyle AYNI mantık). Doküman/sayfa açılamazsa `false`. `pageIndex` 1-tabanlı.
+  ///
+  /// `ignoringWhitespace`: `overlay` katmanı her kelimeyi AYRI konumlandırır; PDFKit satırı
+  /// yeniden kurarken boşluk/satır sonu kararını kelime aralığına göre verir. Kapı "metin orada
+  /// mı" sorusunu sorar, boşluk biçimini değil — o kipte iki taraf da boşluksuz kıyaslanır.
   public static func searchablePageContains(
-    pdfAt url: URL, pageIndex: Int, expectedSubstring: String
+    pdfAt url: URL, pageIndex: Int, expectedSubstring: String, ignoringWhitespace: Bool = false
   ) -> Bool {
     guard let document = PDFDocument(url: url), let page = document.page(at: pageIndex - 1),
       let text = page.string
     else { return false }
-    return text.contains(expectedSubstring)
+    guard ignoringWhitespace else { return text.contains(expectedSubstring) }
+    func squeeze(_ value: String) -> String { value.filter { !$0.isWhitespace } }
+    let needle = squeeze(expectedSubstring)
+    return !needle.isEmpty && squeeze(text).contains(needle)
   }
 
   private struct RenderedRGBA {

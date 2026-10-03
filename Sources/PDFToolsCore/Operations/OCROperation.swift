@@ -34,10 +34,24 @@ public struct OCROperation: PDFOperation {
   public static let languageChoices: [(value: String, label: String)] = [
     ("tr", "Turkish"), ("en", "English"), ("auto", "Automatic (TR + EN)"),
   ]
+  /// `auto` VARSAYILAN (2026-10-03, ölçüm `OCRTextLayer` dosya üstünde): taranmış sayfa kendi
+  /// görüntü çözünürlüğünde okunur — büyütmek kelime sayısını değiştirmedi, süreyi %60 artırdı.
   public static let dpiChoices: [(value: String, label: String)] = [
-    ("150", "150 dpi — faster"), ("200", "200 dpi — recommended"),
+    ("auto", "Automatic — native image resolution"),
+    ("150", "150 dpi — faster"), ("200", "200 dpi — balanced"),
     ("300", "300 dpi — most accurate"),
   ]
+  public static let defaultDPIValue = "auto"
+  /// `auto`'da sayfada görüntü yoksa kullanılan çözünürlük (eski varsayılan).
+  public static let fallbackDPI: CGFloat = 200
+
+  /// `dpi` seçenek değerini çözünürlüğe çevirir: `auto`/boş/tanınmayan → `.native`, sayı → `.dpi`.
+  public static func resolution(from value: String?) -> OCRTextLayer.Resolution {
+    guard let value, value != "auto", let number = Double(value), number > 0 else {
+      return .native(fallbackDPI: fallbackDPI)
+    }
+    return .dpi(CGFloat(number))
+  }
 
   /// `OCRVerification.turkishSupportDegraded` true dönerse gösterilen uyarı — `OCROperation` ve
   /// `SearchablePDFOperation`'IN PAYLAŞTIĞI TEK metin (bkz. dosya üstü CI ölçümü, 2026-09-08).
@@ -53,7 +67,8 @@ public struct OCROperation: PDFOperation {
         id: Self.languageOptionID, label: "Language", choices: Self.languageChoices,
         defaultValue: "tr"),
       OperationOption(
-        id: Self.dpiOptionID, label: "Resolution", choices: Self.dpiChoices, defaultValue: "200"),
+        id: Self.dpiOptionID, label: "Resolution", choices: Self.dpiChoices,
+        defaultValue: Self.defaultDPIValue),
       OperationOption(
         id: Self.levelOptionID, label: "Quality",
         choices: [("accurate", "Accurate (slower)"), ("fast", "Fast (less accurate)")],
@@ -78,7 +93,7 @@ public struct OCROperation: PDFOperation {
 
     let languageKey = context.options[Self.languageOptionID] ?? "tr"
     let languages = Self.recognitionLanguages[languageKey] ?? Self.recognitionLanguages["tr"]!
-    let dpi = CGFloat(Double(context.options[Self.dpiOptionID] ?? "200") ?? 200)
+    let resolution = Self.resolution(from: context.options[Self.dpiOptionID])
     let levelValue = context.options[Self.levelOptionID] ?? "accurate"
     let level: VNRequestTextRecognitionLevel = levelValue == "fast" ? .fast : .accurate
 
@@ -101,8 +116,11 @@ public struct OCROperation: PDFOperation {
         unopenedPages.append(pageIndex)
         continue
       }
-      let lines = try OCRVerification.recognizeText(
-        onPage: page, dpi: dpi, languages: languages, level: level)
+      let lines = try autoreleasepool {
+        try OCRVerification.recognizeText(
+          onPage: page, scale: OCRTextLayer.renderScale(for: page, resolution: resolution),
+          languages: languages, level: level)
+      }
       pageBlocks[pageIndex] = lines.map(\.text).joined(separator: "\n")
       confidences.append(contentsOf: lines.map(\.confidence))
       progress(Double(pageIndex) / Double(total) * 0.9)

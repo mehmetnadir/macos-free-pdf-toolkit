@@ -224,3 +224,10 @@
 /* ToolRequirement (Ghostscript kurulum yönlendirmesi) — Tur 10 sonrası eklendi. */
 "the Strong compression level, which also shrinks the images inside the PDF" = "Güçlü sıkıştırma seviyesi — PDF içindeki görselleri de küçültür";
 "Ghostscript is licensed under the AGPL, which would apply to this app as a whole if it shipped inside it. Installing it yourself keeps both licences clean — and it stays on your Mac for other apps too." = "Ghostscript AGPL lisanslı; uygulamanın içinde dağıtılsaydı bu lisans uygulamanın tamamını kapsardı. Kendin kurunca iki lisans da temiz kalıyor — ayrıca Mac'inde kalıp başka uygulamalara da yarıyor.";
+
+/* Aranabilir Yap — kayıpsız katman kipi (2026-10-03). */
+"Automatic — native image resolution" = "Otomatik — görüntünün kendi çözünürlüğü";
+"Lossless overlay (pages kept byte-for-byte)" = "Kayıpsız katman (sayfalar bayt bayt korunur)";
+"Redraw pages (legacy)" = "Sayfaları yeniden çiz (eski yöntem)";
+"qpdf not found — pages were redrawn (lossy)" = "qpdf bulunamadı — sayfalar yeniden çizildi (kayıplı)";
+"The source file changed while it was being processed — output deleted" = "Kaynak dosya işlenirken değişti — çıktı silindi";
