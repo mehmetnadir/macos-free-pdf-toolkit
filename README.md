@@ -401,7 +401,7 @@ download, no API key, no network — about a second per page.
 | Option | Values | Default |
 |---|---|---|
 | Language | Turkish · English · Automatic (TR + EN) | Turkish |
-| Resolution | 150 dpi — faster · 200 dpi — recommended · 300 dpi — most accurate | 200 dpi |
+| Resolution | Auto (the embedded image's own resolution) · 150 · 200 · 300 dpi | Auto |
 | Quality | Accurate (slower) · Fast (less accurate) | Accurate |
 
 Turkish is supported, and where it is imperfect the result says so: the dotted
@@ -411,25 +411,38 @@ Mac at all, the app reports that the text was read with an English recognizer
 rather than pretending it was Turkish.
 
 ```bash
-pdftools ocr [--language tr|en|auto] [--dpi 200] [--level accurate|fast] \
+pdftools ocr [--language tr|en|auto] [--dpi auto|150|200|300] [--level accurate|fast] \
              [--out DIR] <file.pdf|folder>...
 ```
 
 #### Make Searchable
 
 Puts an invisible text layer over a scanned page, so the scan stays a scan but
-the text becomes selectable and searchable.
+the text becomes selectable and searchable. By default this is lossless: the
+page image is kept byte for byte (no redraw, no font or colour change). Apple
+Vision reads the text with word boxes, and an invisible text layer is laid over
+the source with qpdf `--overlay`.
 
 | Option | Values | Default |
 |---|---|---|
 | Language | Turkish · English · Automatic (TR + EN) | Turkish |
-| Resolution | 150 dpi — faster · 200 dpi — recommended · 300 dpi — most accurate | 200 dpi |
+| Resolution | Auto (the embedded image's own resolution, no upscaling) · 150 · 200 · 300 dpi | Auto |
+| Mode | Lossless overlay (pages kept byte for byte) · Redraw pages (legacy) | Lossless overlay |
 
-Two checks before the file is accepted: the page image is unchanged (verified by
-pixel comparison), and the text can actually be read back out of the output.
+The output passes three independent checks before it is accepted: the page
+image streams are identical to the source, a pixel comparison shows no visual
+change, and PDFKit can find the text in the output. The old redraw path remains
+as `--mode redraw`. Measured on 2709×3591 px single-image book pages: about
+0.5–0.9 s per page on Apple Silicon, mean Vision confidence 0.99, and a text
+layer of about 13 KB per page.
+
+Limits: recognition can drop on math formulas, vertical or slanted text,
+handwriting and very small type. The text layer makes the page searchable and
+copyable, not editable.
 
 ```bash
-pdftools searchable [--language tr|en|auto] [--dpi 200] [--out DIR] <file.pdf|folder>...
+pdftools searchable [--language tr|en|auto] [--dpi auto|150|200|300]
+               [--mode overlay|redraw] [--out DIR] <file.pdf|folder>...
 ```
 
 ### Extract & export
@@ -633,9 +646,10 @@ pdftools extracttext [--layout plain|pages] [--out DIR] <file.pdf|folder>...
 pdftools qradd --content TEXT [--position br|bl|tr|tl] [--size small|medium|large]
                [--pages all|first] [--out DIR] <file.pdf|folder>...
 pdftools qrextract [--dpi 200] [--out DIR] <file.pdf|folder>...
-pdftools ocr [--language tr|en|auto] [--dpi 200] [--level accurate|fast]
+pdftools ocr [--language tr|en|auto] [--dpi auto|150|200|300] [--level accurate|fast]
              [--out DIR] <file.pdf|folder>...
-pdftools searchable [--language tr|en|auto] [--dpi 200] [--out DIR] <file.pdf|folder>...
+pdftools searchable [--language tr|en|auto] [--dpi auto|150|200|300]
+               [--mode overlay|redraw] [--out DIR] <file.pdf|folder>...
 pdftools watermarkremove [--out DIR] <file.pdf|folder>...   (experimental)
 pdftools watermarkadd --text TEXT [--position center|header|footer]
                       [--opacity 0.15] [--font-size 36] [--color gray|red|blue]

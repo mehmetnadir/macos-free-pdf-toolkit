@@ -400,7 +400,7 @@ yok, API anahtarı yok, ağ yok — sayfa başına yaklaşık bir saniye.
 | Seçenek | Değerler | Varsayılan |
 |---|---|---|
 | Language | Turkish · English · Automatic (TR + EN) | Turkish |
-| Resolution | 150 dpi — daha hızlı · 200 dpi — önerilen · 300 dpi — en doğru | 200 dpi |
+| Resolution | Auto (gömülü görüntünün kendi çözünürlüğü) · 150 · 200 · 300 dpi | Auto |
 | Quality | Accurate (slower) · Fast (less accurate) | Accurate |
 
 Türkçe destekleniyor ve kusurlu olduğu yerde sonuç bunu söylüyor: noktalı büyük
@@ -410,26 +410,38 @@ değilse uygulama, metnin Türkçe okunmuş gibi davranmak yerine İngilizce
 tanıyıcıyla okunduğunu bildirir.
 
 ```bash
-pdftools ocr [--language tr|en|auto] [--dpi 200] [--level accurate|fast] \
+pdftools ocr [--language tr|en|auto] [--dpi auto|150|200|300] [--level accurate|fast] \
              [--out KLASÖR] <dosya.pdf|klasör>...
 ```
 
 #### Make Searchable — Aranabilir Yap
 
 Taranmış sayfanın üstüne görünmez bir metin katmanı koyar; tarama tarama olarak
-kalır ama metin seçilebilir ve aranabilir olur.
+kalır ama metin seçilebilir ve aranabilir olur. Varsayılan olarak kayıpsızdır:
+sayfa görüntüsü bayt bayt korunur (yeniden çizim yok, font ya da renk değişimi
+yok). Apple Vision metni kelime kutularıyla okur, görünmez bir metin katmanı
+qpdf `--overlay` ile kaynağın üstüne bindirilir.
 
 | Seçenek | Değerler | Varsayılan |
 |---|---|---|
 | Language | Turkish · English · Automatic (TR + EN) | Turkish |
-| Resolution | 150 dpi — daha hızlı · 200 dpi — önerilen · 300 dpi — en doğru | 200 dpi |
+| Resolution | Auto (gömülü görüntünün kendi çözünürlüğü, büyütme yok) · 150 · 200 · 300 dpi | Auto |
+| Mode | Lossless overlay (sayfalar bayt bayt korunur) · Redraw pages (eski yol) | Lossless overlay |
 
-Dosya kabul edilmeden önce iki denetim: sayfa görüntüsü değişmemiş olmalı
-(piksel karşılaştırmasıyla doğrulanır) ve metin gerçekten çıktıdan geri
-okunabilmeli.
+Çıktı kabul edilmeden önce üç bağımsız denetimden geçer: sayfa görüntü akışları
+kaynakla özdeş olmalı, piksel karşılaştırması görsel değişiklik göstermemeli ve
+PDFKit metni çıktıda bulabilmeli. Eski yeniden-çizim yolu `--mode redraw` ile
+duruyor. 2709×3591 px tek-görüntülü kitap sayfalarında ölçüldü: Apple Silicon'da
+sayfa başına yaklaşık 0,5–0,9 sn, ortalama Vision güveni 0,99, metin katmanı
+sayfa başına yaklaşık 13 KB.
+
+Sınırlar: matematik formüllerinde, dikey ya da eğik metinde, el yazısında ve
+çok küçük puntoda tanıma düşebilir. Metin katmanı aramayı ve kopyalamayı
+sağlar, düzenlemeyi değil.
 
 ```bash
-pdftools searchable [--language tr|en|auto] [--dpi 200] [--out KLASÖR] <dosya.pdf|klasör>...
+pdftools searchable [--language tr|en|auto] [--dpi auto|150|200|300]
+               [--mode overlay|redraw] [--out KLASÖR] <dosya.pdf|klasör>...
 ```
 
 ### Ayıklama ve dışa aktarma
@@ -634,9 +646,10 @@ pdftools extracttext [--layout plain|pages] [--out DIR] <file.pdf|folder>...
 pdftools qradd --content TEXT [--position br|bl|tr|tl] [--size small|medium|large]
                [--pages all|first] [--out DIR] <file.pdf|folder>...
 pdftools qrextract [--dpi 200] [--out DIR] <file.pdf|folder>...
-pdftools ocr [--language tr|en|auto] [--dpi 200] [--level accurate|fast]
+pdftools ocr [--language tr|en|auto] [--dpi auto|150|200|300] [--level accurate|fast]
              [--out DIR] <file.pdf|folder>...
-pdftools searchable [--language tr|en|auto] [--dpi 200] [--out DIR] <file.pdf|folder>...
+pdftools searchable [--language tr|en|auto] [--dpi auto|150|200|300]
+               [--mode overlay|redraw] [--out DIR] <file.pdf|folder>...
 pdftools watermarkremove [--out DIR] <file.pdf|folder>...   (experimental)
 pdftools watermarkadd --text TEXT [--position center|header|footer]
                       [--opacity 0.15] [--font-size 36] [--color gray|red|blue]
