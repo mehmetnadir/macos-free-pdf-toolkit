@@ -364,6 +364,43 @@ final class SearchableOverlayTests: XCTestCase {
     }
   }
 
+  // MARK: - (9b) qpdf yoksa overlay fırlatır, redraw üretir (fail-closed)
+
+  /// SAHA ARIZASI (2026-10-03): paket dışı release ikilisi qpdf'i bulamadı, `overlay` sessizce
+  /// `redraw`'a düştü ve 64 sayfalık kitap "✓" ile kayıplı üretildi. Artık overlay FIRLATIR ve
+  /// çıktı yazılmaz; kayıplı yol yalnız açıkça seçilince çalışır.
+  func testOverlayWithoutQPDFFailsClosedButRedrawStillProduces() async throws {
+    let dir = try makeTempDirectory()
+    let source = dir.appendingPathComponent("kaynak.pdf")
+    Self.makeFixture(to: source)
+    let noQPDF = SearchablePDFOperation(locateQPDF: { nil })
+    let language = [OCROperation.languageOptionID: Self.script.languageKey]
+
+    do {
+      _ = try await noQPDF.run(
+        file: PDFFileInfo.inspect(source),
+        context: OperationContext(outputDirectory: dir, options: language)) { _ in }
+      XCTFail("qpdf yokken overlay fırlatmalıydı")
+    } catch let error as SearchablePDFError {
+      XCTAssertEqual(error, .qpdfMissing)
+    }
+    let leftovers = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+      .filter { $0 != "kaynak.pdf" }
+    XCTAssertEqual(leftovers, [], "fırlatan overlay dosya bıraktı")
+
+    var redrawOptions = language
+    redrawOptions[SearchablePDFOperation.modeOptionID] = SearchablePDFOperation.redrawMode
+    let outcome = try await noQPDF.run(
+      file: PDFFileInfo.inspect(source),
+      context: OperationContext(outputDirectory: dir, options: redrawOptions)) { _ in }
+    guard case .produced(let urls, _) = outcome, let output = urls.first else {
+      return XCTFail("redraw kipi üretmedi: \(outcome)")
+    }
+    let text = PDFDocument(url: output)?.page(at: 0)?.string ?? ""
+    XCTAssertTrue(
+      normalized(text).contains(normalized(Self.script.anchorWord)), "metin yok: \(text)")
+  }
+
   // MARK: - (10) JPEG uyarısı hata sayılmıyor
 
   /// Satırlar gerçek bir kitap sayfasında paketli qpdf'in `--check` çıktısından BİREBİR alındı

@@ -229,5 +229,5 @@
 "Automatic — native image resolution" = "Otomatik — görüntünün kendi çözünürlüğü";
 "Lossless overlay (pages kept byte-for-byte)" = "Kayıpsız katman (sayfalar bayt bayt korunur)";
 "Redraw pages (legacy)" = "Sayfaları yeniden çiz (eski yöntem)";
-"qpdf not found — pages were redrawn (lossy)" = "qpdf bulunamadı — sayfalar yeniden çizildi (kayıplı)";
+"Lossless overlay needs the bundled qpdf engine — run packaging/build-engines.sh, or choose Redraw mode explicitly (lossy)" = "Kayıpsız katman için paketteki qpdf motoru gerekli — packaging/build-engines.sh çalıştır ya da Yeniden çiz kipini açıkça seç (kayıplı)";
 "The source file changed while it was being processed — output deleted" = "Kaynak dosya işlenirken değişti — çıktı silindi";

@@ -17,8 +17,12 @@ import Vision
 ///
 /// · `redraw` (eski yol): her sayfa CoreGraphics ile yeni PDF'e kopyalanır (`QRAddOperation.
 ///   writeOutput` deseni), satırlar `Tr 3` ile görünmez çizilir, `RewriteOutput.finish` xref'i
-///   onarıp kalan hasarı sonuç satırında SÖYLER. qpdf bulunamazsa `overlay` buna düşer ve not bunu
-///   söyler.
+///   onarıp kalan hasarı sonuç satırında SÖYLER. Yalnız AÇIKÇA seçilince çalışır.
+///
+/// qpdf bulunamazsa `overlay` FIRLATIR (`SearchablePDFError.qpdfMissing`), `redraw`'a DÜŞMEZ
+/// (2026-10-03 saha arızası): paket dışı release ikilisi qpdf'i bulamadı, 64 sayfalık kitap "✓"
+/// ile kayıplı üretildi ve uyarı yalnız logda kaldı. Kayıpsız söz verip kayıplı üretmek sessiz
+/// arızadır — fail-closed.
 public struct SearchablePDFOperation: PDFOperation {
   public static let identifier = "searchablepdf"
   public let id = SearchablePDFOperation.identifier
@@ -37,8 +41,6 @@ public struct SearchablePDFOperation: PDFOperation {
     (redrawMode, "Redraw pages (legacy)"),
   ]
 
-  /// qpdf yoksa `overlay`'in `redraw`'a düştüğünü söyleyen not (sessiz düşüş YASAK).
-  public static let qpdfMissingNote = "qpdf not found — pages were redrawn (lossy)"
   static let noTextReason = "No text recognized — pages may be blank or too low quality to read"
 
   /// Piksel kapısı eşiği: kanal başına ortalama mutlak fark ≤ 0,5/255.
@@ -46,7 +48,13 @@ public struct SearchablePDFOperation: PDFOperation {
   /// Piksel kapısında render'ın uzun kenarı (px).
   static let pixelCheckLongSide: CGFloat = 600
 
-  public init() {}
+  /// qpdf'i bulan fonksiyon — testler "qpdf yok" durumunu buradan kurar (CI'da Homebrew qpdf'i
+  /// `EngineLocator` aramasından çıkarmanın yolu yok).
+  let locateQPDF: @Sendable () -> URL?
+
+  public init() { self.locateQPDF = { EngineLocator.find("qpdf") } }
+
+  init(locateQPDF: @escaping @Sendable () -> URL?) { self.locateQPDF = locateQPDF }
 
   public var options: [OperationOption] {
     [
@@ -94,15 +102,10 @@ public struct SearchablePDFOperation: PDFOperation {
     if mode == Self.redrawMode {
       return try await runRedraw(
         file: file, document: document, total: total, languageKey: languageKey,
-        languages: languages, resolution: resolution, output: output, extraNote: nil,
-        progress: progress)
+        languages: languages, resolution: resolution, output: output, progress: progress)
     }
-    guard let qpdf = EngineLocator.find("qpdf") else {
-      return try await runRedraw(
-        file: file, document: document, total: total, languageKey: languageKey,
-        languages: languages, resolution: resolution, output: output,
-        extraNote: Self.qpdfMissingNote, progress: progress)
-    }
+    // FAIL-CLOSED (bkz. dosya üstü): kayıpsız kip qpdf'siz kayıplı yola DÜŞMEZ.
+    guard let qpdf = locateQPDF() else { throw SearchablePDFError.qpdfMissing }
 
     // GÜVENLİK: katmanı CoreGraphics, çıktıyı qpdf (alt süreç) KENDİSİ oluşturuyor —
     // `TempArtifact.withPrivateDirectory` (bkz. o tipin gerekçesi). Bir kapı düşerse fırlatılır ve
@@ -308,7 +311,7 @@ public struct SearchablePDFOperation: PDFOperation {
 
   private func runRedraw(
     file: PDFFileInfo, document: CGPDFDocument, total: Int, languageKey: String,
-    languages: [String], resolution: OCRTextLayer.Resolution, output: URL, extraNote: String?,
+    languages: [String], resolution: OCRTextLayer.Resolution, output: URL,
     progress: @escaping @Sendable (Double) -> Void
   ) async throws -> OperationOutcome {
     let fm = FileManager.default
@@ -345,10 +348,9 @@ public struct SearchablePDFOperation: PDFOperation {
       try fm.moveItem(at: partial, to: output)
       progress(1)
 
-      // Türkçe uyarısı, yeniden çizme hasarı ve (varsa) qpdf yokluğu birlikte bildirilir — biri
-      // diğerini bastırmaz.
+      // Türkçe uyarısı ve yeniden çizme hasarı birlikte bildirilir — biri diğerini bastırmaz.
       let warning = Self.turkishWarning(languageKey: languageKey, sawDiacritic: sawTurkishDiacritic)
-      let notes = [extraNote, warning, rewrite.note].compactMap { $0 }
+      let notes = [warning, rewrite.note].compactMap { $0 }
       return .produced(urls: [output], note: notes.isEmpty ? nil : notes.joined(separator: " · "))
     }
   }
@@ -471,6 +473,8 @@ public enum SearchablePDFError: Error, LocalizedError, Equatable {
   case sourceModified
   /// Bir kapı ölçüm yapamadı — "ölçemedim" ile "sorun yok" aynı şey değil, fırlatılır.
   case gateUnverifiable(String)
+  /// `overlay` kipi qpdf'i bulamadı — kayıplı yola DÜŞÜLMEZ (fail-closed).
+  case qpdfMissing
 
   public var errorDescription: String? {
     switch self {
@@ -500,6 +504,9 @@ public enum SearchablePDFError: Error, LocalizedError, Equatable {
       return "The source file changed while it was being processed — output deleted"
     case .gateUnverifiable(let detail):
       return "Output could not be verified — \(detail); output deleted"
+    case .qpdfMissing:
+      return "Lossless overlay needs the bundled qpdf engine — run packaging/build-engines.sh, "
+        + "or choose Redraw mode explicitly (lossy)"
     }
   }
 }
